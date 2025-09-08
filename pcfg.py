@@ -16,6 +16,8 @@ class Node:
         self.left = None
         self.right = None
 
+
+
 class Tree:
 
     def __init__(self, root_data):
@@ -24,6 +26,9 @@ class Tree:
         self.nodes = set([self.root])
         self.edges = set()
         self.leaves = set([self.root])
+
+    def __len__(self):
+        return len(self.leaves)
 
     def add_left(self, n: Node, parent: Node):
         self.nodes.add(n)
@@ -112,46 +117,18 @@ class Tree:
         )
         plt.show()
 
-class MSEPCFG(nn.Module):
-    
-    def __init__(self):
-        super().__init__()
-        
-    def forward(
-        self,
-        rules: Tensor,
-        H_t: Tensor
-    ) -> Tensor:
-        
-        return (rules.entropy() - H_t) ** 2
 
-class PCFGDataset(torch.utils.data.Dataset):
-
-    def __init__(self):
-        pass
-
-    def __getitem__(self):
-        pass
-
-    def __len__(self) -> int:
-        pass
-
-    def entropy_rate(self) -> Tensor:
-        pass
-
-    # 'abcd' has some P
-    # 'abcda', 'abcdb', 'abcdc', ... -> entropy -> average over all symbols in dataset for ent rate
 
 class PCFG:
 
     def __init__(
         self,
-        num_non_terminals = 10,
-        num_terminals = 10,
-        chr_ord_offset = 97,
-        rules = None,
-        device = None,
-        seed = None
+        num_non_terminals: int = 10,
+        num_terminals: int = 10,
+        chr_ord_offset: int = 97,
+        rules: Tensor = None,
+        device: str = None,
+        seed: int = 42
     ):
         
         """
@@ -186,6 +163,8 @@ class PCFG:
                 self.rules = torch.nn.Parameter(torch.load(rules, map_location=device))
             elif type(rules) == Tensor:
                 self.rules = rules
+            else:
+                raise TypeError(f"Expected rules to be a string or Torch tensor but got: {type(rules)}")
 
             self.num_non_terminals: int = self.rules.shape[0] - 1
             self.num_terminals: int = self.rules.shape[1] - self.num_non_terminals ** 2
@@ -197,10 +176,10 @@ class PCFG:
 
         # non-terminals are integers, terminals are utf-8 characters
         self.non_terminals_ordered: list[int] = [
-            x for x in range(self.start_symbol + 1, self.start_symbol + num_non_terminals + 1)
+            x for x in range(self.start_symbol + 1, self.start_symbol + self.num_non_terminals + 1)
         ]
         self.terminals_ordered: list[str] = [
-            chr(x + chr_ord_offset) for x in range(num_terminals)
+            chr(x + chr_ord_offset) for x in range(self.num_terminals)
         ]
 
         # pre-compile for quick lookup, also uses popular naming conventions
@@ -210,13 +189,14 @@ class PCFG:
         assert len(self.Sigma) == len(self.terminals_ordered) == self.num_terminals
         self.S = self.start_symbol
         self.NUS = self.N.union(set([self.S]))
+        self.pad_id = self.num_terminals
 
         assert torch.allclose(self.rules.sum(1), torch.tensor(1., device=self.device))
 
     def write(self, dest: str):
         torch.save(self.rules, dest)
 
-    def _preorder(self, node: Node) -> str:
+    def _preorder(self, node: Node | None) -> str:
         if node is None:
             return ''
         
@@ -248,6 +228,24 @@ class PCFG:
             return torch.tensor(ids, dtype=int, device=self.device)
         else:
             return ids
+        
+    def batch_tokenize(self, trees: list[Tree], return_tensors=None) -> Union[list[list[int]], Tensor]:
+        id_lists = [self.tokenize(t) for t in trees]
+
+        longest = 0
+        for id_list in id_lists:
+            length = len(id_list)
+            if length > longest:
+                longest = length
+        
+        for i in range(len(id_lists)):
+            while len(id_lists[i]) < longest:
+                id_lists[i].append(self.pad_id)
+
+        if return_tensors == 'pt':
+            return torch.tensor(id_lists, dtype=int, device=self.device)
+        else:
+            return id_lists
 
     def untokenize(self, seq: Union[list[int], Tensor]) -> str:
 
@@ -466,6 +464,8 @@ class PCFG:
             print('Starting optimization...')
         
         self.rules = torch.nn.Parameter(self.rules)
+        best_optimization_loss = float('inf')
+        best_optimization_rules = None
         optimizer = torch.optim.AdamW([self.rules], lr=lr)
         
         i = 0
@@ -489,6 +489,9 @@ class PCFG:
                     loss_val = loss.item()
                     if do_logging:
                         print(f'loss: {loss_val:.4}')
+                    if loss_val < best_optimization_loss:
+                        best_optimization_loss = loss_val
+                        best_optimization_rules = self.rules.clone().detach()
                     if loss_val < tol:
                         break
                     losses.append(loss_val)
@@ -507,12 +510,19 @@ class PCFG:
             i += 1
         
         with torch.no_grad():
-            self.rules = self.rules.softmax(1).detach()
+            if best_optimization_rules is not None:
+                self.rules = best_optimization_rules.softmax(1).detach()
+            else:
+                self.rules = self.rules.softmax(1).detach()
 
     def to(self, device: Union[str, torch.device]):
         self.rules = self.rules.to(device)
         self.device = device
         return self
+    
+    def save(self, fp: str):
+        torch.save(self.rules.cpu(), fp)
+        print(f'Saved rules to {fp} successfully.')
 
     def cky(self, v: Union[str, list[int], Tensor, Tree]) -> Tensor:
 
@@ -584,6 +594,8 @@ class PCFG:
 
         E_lc_one_symbol = self._E_lc_one_symbol()
 
+        raise NotImplementedError
+
     def fast_jl(self, v: Union[str, list[int], Tensor]) -> Tensor:
 
         if type(v) == str:
@@ -593,11 +605,92 @@ class PCFG:
 
         p_pi = 0
 
-    def train_and_test_sets(
-        self,
-        min_samples_train: int = 10_000,
-        min_samples_test: int = 10_000,
+        raise NotImplementedError
 
+
+class PCFGDataset(torch.utils.data.Dataset):
+
+    def __init__(
+        self,
+        grammar: PCFG,
+        num_trees: int = 100,
+        max_length: int = 128
     ):
+        if max_length is None or max_length <= 0:
+            max_length = torch.inf
+        self.grammar = grammar
+        self.max_length = max_length
+        self.examples = self.grammar.generate(
+            max_length=max_length,
+            num_trees=num_trees
+        )
+        self.memoized_n_grams = {}
+        self.orders_examined = set()
+
+    def __getitem__(self, idx):
+        return self.examples[idx]
+
+    def __len__(self) -> int:
+        return len(self.examples)
+    
+    def basic_stats(self) -> dict:
+
+        lens = sorted([len(t) for t in self.examples])
+
+        tokens = sum(lens)
+
+        if len(lens) % 2 == 0:
+            median = (
+                lens[len(lens) // 2] + lens[len(lens) // 2 + 1]
+            ) // 2
+        else:
+            median = lens[len(lens) // 2 + 1]
+
+        unique_lens = dict.fromkeys(set(lens), 0)
+        for l in lens:
+            unique_lens[l] += 1
+        mode = -1
+        max_count = -1
+        for unique_len in unique_lens:
+            if unique_lens[unique_len] > max_count:
+                max_count = unique_lens[unique_len]
+                mode = unique_len
+
+        return {
+            'token_count': tokens,
+            'mean_length': tokens / len(self),
+            'median_length': median,
+            'mode_length': mode
+        }
+
+    def m_local_entropy(self, order: int = 3) -> float:
+
+        if order in self.orders_examined:
+            return self._m_local_entropy_helper(order)
         
-        pass
+        self.orders_examined.add(order)
+
+        self.memoized_n_grams[order] = {}
+
+        d = self.memoized_n_grams[order]
+
+        for tree in self.examples:
+            s = self.grammar.flatten_to_str(tree)
+            for i in range(order - 1, len(s)):
+                c = s[i-order+1:i]
+                if c in d:
+                    if s[i] in d[c]:
+                        d[c][s[i]] += 1
+                    else:
+                        d[c][s[i]] = 1
+                else:
+                    d[c] = {}
+                    d[c][s[i]] = 1
+
+        return self._m_local_entropy_helper(order)
+    
+    def _m_local_entropy_helper(order: int) -> float:
+        raise NotImplementedError
+
+    # 'abcd' has some P
+    # 'abcda', 'abcdb', 'abcdc', ... -> entropy -> average over all symbols in dataset for ent rate
