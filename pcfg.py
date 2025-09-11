@@ -1,5 +1,6 @@
 from time import time
 from typing import Union
+from warnings import warn
 from concurrent.futures import ThreadPoolExecutor
 
 import torch
@@ -126,7 +127,7 @@ class PCFG:
         num_non_terminals: int = 10,
         num_terminals: int = 10,
         chr_ord_offset: int = 97,
-        rules: Tensor = None,
+        rules: Union[torch.Tensor, str] = None,
         device: str = None,
         seed: int = 42
     ):
@@ -138,6 +139,10 @@ class PCFG:
         Args:
             `num_non_terminals`: `int` - the number of non-terminal symbols in the grammar.
             `num_terminals`: `int` - the number of terminal symbols in the grammar.
+            `chr_ord_offset`: `int` - constant shift to Unicode representations of integer-valued terminal symbols.
+            `rules`: `torch.Tensor | str` - probabilities for weighting the rules. Generated if not passed.
+            `device`: `str` - PyTorch-compatible device name to run computations on GPUs when possible.
+            `seed`: `int` - random seed to generate reproducible initializations/optimization processes.
         """
 
         if seed is not None:
@@ -192,6 +197,10 @@ class PCFG:
         self.pad_id = self.num_terminals
 
         assert torch.allclose(self.rules.sum(1), torch.tensor(1., device=self.device))
+
+        rho = self._char_matrix_rho()
+        if rho >= 1.0:
+            warn(f'The characteristic matrix has spectral radius {rho} ≥ 1.0, which may cause undesirable behavior.')
 
     def write(self, dest: str):
         torch.save(self.rules, dest)
@@ -374,6 +383,9 @@ class PCFG:
                 return tree
 
     def generate(self, max_length: int = 128, num_trees: int = 1, max_threads: int = None) -> list[Tree]:
+        
+        if max_length is None or max_length <= 0:
+            max_length = torch.inf
 
         with ThreadPoolExecutor(max_workers=max_threads) as executor:
             futures = [
@@ -411,6 +423,11 @@ class PCFG:
             @
             (self._local_expansion_vector())
         )[self.S]
+    
+    def _char_matrix_rho(self) -> Tensor:
+
+        # eigenvalues must be done on CPU, not implemented on MPS
+        return torch.linalg.eigvals(self._char_matrix().cpu()).abs().max()
 
     def optimize(
         self,
@@ -514,6 +531,9 @@ class PCFG:
                 self.rules = best_optimization_rules.softmax(1).detach()
             else:
                 self.rules = self.rules.softmax(1).detach()
+
+        rho = self._char_matrix_rho()
+        print(f'Spectral radius: {rho}.')
 
     def to(self, device: Union[str, torch.device]):
         self.rules = self.rules.to(device)
