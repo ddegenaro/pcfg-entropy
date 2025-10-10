@@ -16,10 +16,10 @@ else:
     device = 'cpu'
 
 grid = OrderedDict({
-    'num_non_terminals': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20],
-    'num_terminals':     [10, 50, 100, 500, 1000, 5000, 10000, 50000],
-    'entropy':           [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024],
-    'seed':              [0, 42, 69, 420, 2025]
+    'num_non_terminals': [8, 32],
+    'num_terminals':     [4_096, 16_384, 65_536],
+    'entropy':           [8, 32, 128],
+    'seed':              [0]
 })
 
 for vals in product(*grid.values()):
@@ -37,9 +37,13 @@ for vals in product(*grid.values()):
     )
 
     if os.path.exists(path):
-        print(f'{path} exists. Skipping.')
-        continue
-        
+        g = PCFG(rules=torch.load(path))
+        rho = g._char_matrix_rho().item()
+        if rho >= 1.0:
+            print(f'{path} exists. Skipping.')
+            continue
+        else:
+            print(f'{path} exists with bad rho. Re-trying.')
 
     print(f'Hyperparameters: {combo}')
 
@@ -48,9 +52,13 @@ for vals in product(*grid.values()):
         num_terminals=combo['num_terminals'],
         seed=combo['seed']
     )
-    grammar.to(device)
-    grammar.optimize(float(combo['entropy']))
+    # grammar.to(device)
+    success = grammar.optimize(float(combo['entropy']))
 
-    grammar.save(path)
-
-    print(f'Wrote {path}')
+    if abs(grammar.entropy() - float(combo['entropy'])) > 5:
+        print(f'{combo} failed.')
+    elif success:
+        grammar.save(path)
+        print(f'Wrote {path}')
+    else:
+        print(f'{combo} failed.')

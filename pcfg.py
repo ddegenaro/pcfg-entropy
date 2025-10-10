@@ -1,13 +1,12 @@
 from time import time
-from typing import Union
-from warnings import warn
+from typing import Union, Iterable
 from concurrent.futures import ThreadPoolExecutor
 
 import torch
-from torch import nn
-from torch import Tensor
 import networkx as nx
 import matplotlib.pyplot as plt
+
+from utils import SequenceDataset
 
 class Node:
 
@@ -21,15 +20,19 @@ class Node:
 
 class Tree:
 
-    def __init__(self, root_data):
+    def __init__(self, root_data, grammar):
         self.root = Node(root_data)
         self.frontier = [self.root]
         self.nodes = set([self.root])
         self.edges = set()
         self.leaves = set([self.root])
+        self.grammar = grammar
 
     def __len__(self):
         return len(self.leaves)
+    
+    def __str__(self):
+        return self.grammar.flatten_to_str(self)
 
     def add_left(self, n: Node, parent: Node):
         self.nodes.add(n)
@@ -145,8 +148,24 @@ class PCFG:
             `seed`: `int` - random seed to generate reproducible initializations/optimization processes.
         """
 
+        self.cpu_generator = torch.Generator('cpu')
+
+        if torch.backends.mps.is_available():
+            self.gpu_generator = torch.Generator('mps')
+        elif torch.cuda.is_available():
+            self.gpu_generator = torch.Generator('cuda')
+        else:
+            self.gpu_generator = None
+
         if seed is not None:
-            torch.manual_seed(seed)
+            self.cpu_generator.manual_seed(seed)
+            if self.gpu_generator is not None:
+                self.gpu_generator.manual_seed(seed)
+
+        if device is None or device == 'cpu' or device == torch.device('cpu') or self.gpu_generator is None:
+            self.generator = self.cpu_generator
+        else:
+            self.generator = self.gpu_generator
 
         # start symbol is always 0
         self.start_symbol = 0
@@ -156,7 +175,8 @@ class PCFG:
             # row and column indices indicate probability of that rule
             self.rules = torch.randn(
                 (num_non_terminals + 1, num_terminals + num_non_terminals ** 2),
-                device=device
+                device=device,
+                generator=self.generator
             ).softmax(1)
 
             self.num_non_terminals: int = num_non_terminals
@@ -166,7 +186,7 @@ class PCFG:
         
             if type(rules) == str:
                 self.rules = torch.nn.Parameter(torch.load(rules, map_location=device))
-            elif type(rules) == Tensor:
+            elif type(rules) == torch.Tensor:
                 self.rules = rules
             else:
                 raise TypeError(f"Expected rules to be a string or Torch tensor but got: {type(rules)}")
@@ -196,14 +216,12 @@ class PCFG:
         self.NUS = self.N.union(set([self.S]))
         self.pad_id = self.num_terminals
 
-        assert torch.allclose(self.rules.sum(1), torch.tensor(1., device=self.device))
+        if not torch.allclose(self.rules.sum(1), torch.tensor(1., device=self.device)):
+            print(f'Warning: probability distributions not summing to 1.')
 
         rho = self._char_matrix_rho()
-        if rho >= 1.0:
-            warn(f'The characteristic matrix has spectral radius {rho} ≥ 1.0, which may cause undesirable behavior.')
-
-    def write(self, dest: str):
-        torch.save(self.rules, dest)
+        # if rho >= 1.0:
+        #     warn(f'The characteristic matrix has spectral radius {rho} ≥ 1.0, which may cause undesirable behavior.')
 
     def _preorder(self, node: Node | None) -> str:
         if node is None:
@@ -224,7 +242,7 @@ class PCFG:
     def flatten_to_str(self, tree: Tree) -> str:
         return self._preorder(tree.root)
     
-    def tokenize(self, tree: Union[Tree, str], return_tensors=None) -> Union[list[int], Tensor]:
+    def tokenize(self, tree: Union[Tree, str], return_tensors=None) -> Union[list[int], torch.Tensor]:
 
         if type(tree) == Tree:
             ids = [
@@ -238,27 +256,44 @@ class PCFG:
         else:
             return ids
         
-    def batch_tokenize(self, trees: list[Tree], return_tensors=None) -> Union[list[list[int]], Tensor]:
-        id_lists = [self.tokenize(t) for t in trees]
+    def batch_tokenize(
+        self,
+        trees: Iterable[Tree],
+        return_tensors=None,
+        truncate_length=None
+    ) -> dict[str, Union[list[int], torch.Tensor]]:
+        
+        input_ids = [self.tokenize(t) for t in trees]
+
+        if truncate_length is not None:
+            for i in range(len(input_ids)):
+                input_ids[i] = input_ids[i][:truncate_length]
+
+        pad_mask = [[1 for _ in id_list] for id_list in input_ids]
 
         longest = 0
-        for id_list in id_lists:
+        for id_list in input_ids:
             length = len(id_list)
             if length > longest:
                 longest = length
         
-        for i in range(len(id_lists)):
-            while len(id_lists[i]) < longest:
-                id_lists[i].append(self.pad_id)
+        for i in range(len(input_ids)):
+            while len(input_ids[i]) < longest:
+                input_ids[i].append(self.pad_id)
+                pad_mask[i].append(0)
 
         if return_tensors == 'pt':
-            return torch.tensor(id_lists, dtype=int, device=self.device)
-        else:
-            return id_lists
+            input_ids = torch.tensor(input_ids, dtype=int, device=self.device)
+            pad_mask = torch.tensor(pad_mask, dtype=int, device=self.device)
 
-    def untokenize(self, seq: Union[list[int], Tensor]) -> str:
+        return {
+            'input_ids': input_ids,
+            'attention_mask': pad_mask
+        }
 
-        if type(seq) == Tensor:
+    def untokenize(self, seq: Union[list[int], torch.Tensor]) -> str:
+
+        if type(seq) == torch.Tensor:
             as_list = seq.tolist()
         else:
             as_list = seq
@@ -308,7 +343,7 @@ class PCFG:
         non_terminal: int,
         symbol1: Union[str, int] = None,
         symbol2: int = None
-    ) -> Tensor:
+    ) -> torch.Tensor:
 
         """
         Get the probability of a non-terminal symbol being rewritten as the terminal symbol or pair of
@@ -341,7 +376,7 @@ class PCFG:
             symbol = expansion_point.data
             assert symbol in self.NUS, f"Found terminal symbol {symbol} in frontier."
             sampled_rule_index: int = torch.multinomial(
-                self.rules[symbol], num_samples = 1
+                self.rules[symbol], num_samples = 1, generator=self.generator
             ).item()
             symbol_s = self._column_index_to_symbols(sampled_rule_index)
             if self._col_is_terminal(sampled_rule_index):
@@ -374,7 +409,7 @@ class PCFG:
     def _generate_one(self, max_length: int) -> Tree:
 
         while True:
-            tree = Tree(self.S) # init a tree with start symbol as root
+            tree = Tree(self.S, self) # init a tree with start symbol as root
             while self._expand_tree(tree, max_length):
                 continue
             # At this point, frontier should be empty and all leaves should be terminals
@@ -382,7 +417,12 @@ class PCFG:
                 assert self._is_expanded(tree)  # This should always pass now
                 return tree
 
-    def generate(self, max_length: int = 128, num_trees: int = 1, max_threads: int = None) -> list[Tree]:
+    def generate(
+        self,
+        max_length: int = 128,
+        num_seqs: int = 1,
+        max_threads: int = None
+    ) -> list[Tree]:
         
         if max_length is None or max_length <= 0:
             max_length = torch.inf
@@ -390,13 +430,13 @@ class PCFG:
         with ThreadPoolExecutor(max_workers=max_threads) as executor:
             futures = [
                 executor.submit(self._generate_one, max_length)
-                for _ in range(num_trees)
+                for _ in range(num_seqs)
             ]
             trees = [future.result() for future in futures]
 
         return trees
     
-    def _char_matrix(self) -> Tensor:
+    def _char_matrix(self) -> torch.Tensor:
         # Extract binary rules and reshape to (|NUS|, |N|, |N|)
         binary_rules = self.rules[:, self.num_terminals:].view(
             self.num_non_terminals + 1,
@@ -414,17 +454,17 @@ class PCFG:
         
         return m
 
-    def _local_expansion_vector(self) -> Tensor:
+    def _local_expansion_vector(self) -> torch.Tensor:
         return -(self.rules * self.rules.log()).sum(1)
 
-    def entropy(self) -> Tensor:
+    def entropy(self) -> torch.Tensor:
         return (
             torch.inverse(torch.eye(self.num_non_terminals + 1, device=self.device) - self._char_matrix())
             @
             (self._local_expansion_vector())
         )[self.S]
     
-    def _char_matrix_rho(self) -> Tensor:
+    def _char_matrix_rho(self) -> torch.Tensor:
 
         # eigenvalues must be done on CPU, not implemented on MPS
         return torch.linalg.eigvals(self._char_matrix().cpu()).abs().max()
@@ -438,8 +478,9 @@ class PCFG:
         log_freq: int = 1000,
         max_iter: int = 100_000,
         max_time: float = 300.0,
-        K: int = 1000
-    ) -> tuple[Tensor, float, float, list[float]]:
+        K: int = 1000,
+        max_retries: int = 4
+    ) -> tuple[torch.Tensor, float, float, list[float]]:
         
         losses = []
         
@@ -460,7 +501,11 @@ class PCFG:
             # Try K random initializations
             for k in range(K):
                 # Generate random tensor of same shape (raw values)
-                candidate_rules = torch.randn_like(self.rules, device=self.device)
+                candidate_rules = torch.randn(
+                    self.rules.shape,
+                    device=self.device,
+                    generator=self.generator
+                )
                 candidate_normalized = candidate_rules.softmax(1)
                 
                 # Compute loss with candidate rules
@@ -503,14 +548,18 @@ class PCFG:
             
             if (i % log_freq == 0):
                 with torch.no_grad():
+
                     loss_val = loss.item()
+                    
                     if do_logging:
                         print(f'loss: {loss_val:.4}')
                     if loss_val < best_optimization_loss:
                         best_optimization_loss = loss_val
                         best_optimization_rules = self.rules.clone().detach()
+
                     if loss_val < tol:
                         break
+                    
                     losses.append(loss_val)
                     if len(losses) > 1:
                         if abs(losses[-1] - losses[-2]) < tol:
@@ -535,16 +584,39 @@ class PCFG:
         rho = self._char_matrix_rho()
         print(f'Spectral radius: {rho}.')
 
+        if rho < 1.0:
+            return True
+        elif max_retries == 0:
+            return False
+        else:
+            return self.optimize(
+                H_t,
+                do_logging,
+                tol,
+                lr,
+                log_freq,
+                max_iter,
+                max_time,
+                K,
+                max_retries - 1
+            )
+
     def to(self, device: Union[str, torch.device]):
         self.rules = self.rules.to(device)
         self.device = device
+        if device == 'cpu' or device == torch.device('cpu'):
+            self.generator = self.cpu_generator
+        else:
+            self.generator = self.gpu_generator
+            if self.generator is None:
+                print(f'No GPU generator available - does this machine have a GPU?')
         return self
     
     def save(self, fp: str):
         torch.save(self.rules.cpu(), fp)
         print(f'Saved rules to {fp} successfully.')
 
-    def cky(self, v: Union[str, list[int], Tensor, Tree]) -> Tensor:
+    def cky(self, v: Union[str, list[int], torch.Tensor, Tree]) -> torch.Tensor:
 
         if type(v) in (str, Tree):
             w = self.tokenize(v)
@@ -583,7 +655,7 @@ class PCFG:
 
         return B
 
-    def _P(self) -> Tensor:
+    def _P(self) -> torch.Tensor:
         P = torch.zeros((self.num_non_terminals + 1, self.num_non_terminals + 1))
 
         # Reshape the non-terminal part of rules matrix
@@ -598,25 +670,41 @@ class PCFG:
 
         return P
 
-    def _E_lc_one_symbol(self) -> Tensor:
+    def _E_lc_one_symbol(self) -> torch.Tensor:
         return torch.inverse(
             torch.eye(self.num_non_terminals + 1, device=self.device) - self._P()
         )
 
-    def jl(self, v: Union[str, list[int], Tensor]) -> Tensor:
+    def jl(self, v: Union[str, list[int], torch.Tensor]) -> torch.Tensor:
 
         if type(v) == str:
             w = self.tokenize(v)
         else:
             w = v
 
+        p_pi = torch.zeros(
+            len(w),
+            len(w),
+            self.rules.shape[0]
+        )
+
         B = self.cky(w)
 
         E_lc_one_symbol = self._E_lc_one_symbol()
 
+        non_terminal_rules = self.rules[:, self.num_terminals:].view(
+            self.num_non_terminals + 1,
+            self.num_non_terminals,
+            self.num_non_terminals
+        )
+
+        E_lc_two_symbols = non_terminal_rules.T @ E_lc_one_symbol
+
+        
+
         raise NotImplementedError
 
-    def fast_jl(self, v: Union[str, list[int], Tensor]) -> Tensor:
+    def fast_jl(self, v: Union[str, list[int], torch.Tensor]) -> torch.Tensor:
 
         if type(v) == str:
             w = self.tokenize(v)
@@ -628,89 +716,23 @@ class PCFG:
         raise NotImplementedError
 
 
-class PCFGDataset(torch.utils.data.Dataset):
+
+class PCFGDataset(SequenceDataset):
 
     def __init__(
         self,
         grammar: PCFG,
-        num_trees: int = 100,
+        num_seqs: int = 100,
         max_length: int = 128
     ):
-        if max_length is None or max_length <= 0:
-            max_length = torch.inf
-        self.grammar = grammar
-        self.max_length = max_length
-        self.examples = self.grammar.generate(
-            max_length=max_length,
-            num_trees=num_trees
-        )
-        self.memoized_n_grams = {}
-        self.orders_examined = set()
-
-    def __getitem__(self, idx):
-        return self.examples[idx]
-
-    def __len__(self) -> int:
-        return len(self.examples)
-    
-    def basic_stats(self) -> dict:
-
-        lens = sorted([len(t) for t in self.examples])
-
-        tokens = sum(lens)
-
-        if len(lens) % 2 == 0:
-            median = (
-                lens[len(lens) // 2] + lens[len(lens) // 2 + 1]
-            ) // 2
-        else:
-            median = lens[len(lens) // 2 + 1]
-
-        unique_lens = dict.fromkeys(set(lens), 0)
-        for l in lens:
-            unique_lens[l] += 1
-        mode = -1
-        max_count = -1
-        for unique_len in unique_lens:
-            if unique_lens[unique_len] > max_count:
-                max_count = unique_lens[unique_len]
-                mode = unique_len
-
-        return {
-            'token_count': tokens,
-            'mean_length': tokens / len(self),
-            'median_length': median,
-            'mode_length': mode
-        }
-
-    def m_local_entropy(self, order: int = 3) -> float:
-
-        if order in self.orders_examined:
-            return self._m_local_entropy_helper(order)
         
-        self.orders_examined.add(order)
+        super().__init__(
+            grammar=grammar,
+            num_seqs=num_seqs,
+            max_length=max_length
+        )
 
-        self.memoized_n_grams[order] = {}
-
-        d = self.memoized_n_grams[order]
-
-        for tree in self.examples:
-            s = self.grammar.flatten_to_str(tree)
-            for i in range(order - 1, len(s)):
-                c = s[i-order+1:i]
-                if c in d:
-                    if s[i] in d[c]:
-                        d[c][s[i]] += 1
-                    else:
-                        d[c][s[i]] = 1
-                else:
-                    d[c] = {}
-                    d[c][s[i]] = 1
-
-        return self._m_local_entropy_helper(order)
+    def example_to_str(self, seq):
+        return self.grammar.flatten_to_str(seq)
     
-    def _m_local_entropy_helper(order: int) -> float:
-        raise NotImplementedError
-
-    # 'abcd' has some P
-    # 'abcda', 'abcdb', 'abcdc', ... -> entropy -> average over all symbols in dataset for ent rate
+    
