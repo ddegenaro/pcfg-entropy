@@ -25,5 +25,5 @@ class LSTM(nn.Module):
             
         )
 
-    def forward(self):
+    def forward(self, inputs):
         pass

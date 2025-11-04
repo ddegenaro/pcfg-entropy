@@ -21,7 +21,7 @@ def create_model_and_optimizer(
     if model_type == 'trf':
         model = GPT2LMHeadModel(
             config=GPT2Config(
-                vocab_size=grammar.num_symbols + 1,
+                vocab_size=grammar.num_symbols + 2, # EOS, PAD
                 eos_token_id=grammar.num_symbols,
                 n_embd=n_embd,
                 n_layer=n_layer,
@@ -31,11 +31,10 @@ def create_model_and_optimizer(
         )
     else:
         model = LSTM(
-            vocab_size=grammar.num_symbols + 1,
+            vocab_size=grammar.num_symbols + 2, # EOS, PAD
             eos_token_id = grammar.num_symbols,
             n_embd=n_embd,
             n_layer=n_layer,
-            n_head=n_head,
             n_positions=n_positions
         )
 
@@ -149,7 +148,7 @@ def train_model(
     n_embd: int = 256,
     n_layer: int = 6,
     n_head: int = 4,
-    n_positions: int = 1024,
+    n_positions: int = 256,
     lr: int = 1e-3,
     wd: int = 1e-5,
     max_epochs: int = 20,

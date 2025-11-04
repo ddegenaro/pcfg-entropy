@@ -214,8 +214,8 @@ class Grammar(nn.Module):
         else:
             self.init_weights()
 
-        # TODO: fix this! some formalisms might need this symbol! or is it okay?
-        self.pad_id = self.num_symbols # compute after potentially loading from file
+        self.eos_id = self.num_symbols + 1
+        self.pad_id = self.num_symbols + 2
         self.symbols_ordered: list[str] = [
             chr(x + chr_ord_offset) for x in range(self.num_symbols)
         ]
