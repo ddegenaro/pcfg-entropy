@@ -184,6 +184,8 @@ class Grammar(nn.Module):
         """
 
         super().__init__()
+        self.file_name_convention = ''
+        self.formalism = ''
 
         self.seed: int = seed
         self.device: Union[str, torch.device] = device

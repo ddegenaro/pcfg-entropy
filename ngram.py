@@ -31,6 +31,7 @@ class NGram(Grammar):
         """
         
         # formalism-specific inits
+        self.formalism = 'ngram'
         self.order: int = order
         assert self.order in {1, 2, 3, 4, 5} # probably dangerous to try 6, needs V^6 weights
 
@@ -42,8 +43,12 @@ class NGram(Grammar):
             from_file,
             num_symbols
         )
+        self.file_name_convention = f'ngram_seed_{self.seed}_symbols_{self.num_symbols}_order_{self.order}'
 
         self.validate()
+
+    def __repr__(self):
+        return f'NGram(seed={self.seed}, num_symbols={self.num_symbols}, order={self.order})'
 
     def validate(self):
         super().validate()

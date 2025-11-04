@@ -32,6 +32,7 @@ class PCFG(Grammar):
         """
         
         # formalism-specific inits
+        self.formalism = 'pcfg'
         self.num_non_terminals: int = num_non_terminals
         self.S: int = 0
 
@@ -43,6 +44,7 @@ class PCFG(Grammar):
             from_file,
             num_symbols
         )
+        self.file_name_convention = f'pcfg_seed_{self.seed}_symbols_{self.num_symbols}_nts_{self.num_non_terminals}'
 
         # non-terminals are integers, terminals are utf-8 characters
         self.N_ordered: list[int] = [
@@ -52,6 +54,9 @@ class PCFG(Grammar):
         self.NUS = self.N.union(set([self.S]))
 
         self.validate()
+
+    def __repr__(self):
+        return f'PCFG(seed={self.seed}, num_symbols={self.num_symbols}, num_non_terminals={self.num_non_terminals})'
 
     def validate(self):
         super().validate()
