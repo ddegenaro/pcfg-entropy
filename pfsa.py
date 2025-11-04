@@ -1,111 +1,89 @@
 from time import time
-from typing import Union, Iterable
-from concurrent.futures import ThreadPoolExecutor
+from typing import Union
 
 import torch
+from torch import nn
 
-from utils import SequenceDataset
+from utils import Sequence, SequenceDataset, Grammar
 
-class PFSA:
+class PFSA(Grammar):
 
     def __init__(
         self,
-        num_symbols: int = 10,
-        num_states: int = 10,
+        seed: int = 42,
+        device: Union[str, torch.device] = 'cpu',
         chr_ord_offset: int = 97,
-        file: str = None,
-        device: str = None,
-        seed: int = 42
+        from_file: str = None,
+        num_symbols: int = 10,
+        num_states: int = 10
     ):
         
         """
         Define a probabilistic finite-state automaton with optimizable probabilities.
 
         Args:
-            `num_symbols`: `int` - the number of symbols in the grammar.
-            `num_states`: `int` - the number of hidden states in the grammar.
-            `chr_ord_offset`: `int` - constant shift to Unicode representations of integer-valued terminal symbols.
-            `transitions`: `torch.Tensor | str` - probabilities for weighting the rules. Generated if not passed.
-            `device`: `str` - PyTorch-compatible device name to run computations on GPUs when possible.
             `seed`: `int` - random seed to generate reproducible initializations/optimization processes.
+            `device`: `str` - PyTorch-compatible device name to run computations on GPUs when possible.
+            `chr_ord_offset`: `int` - constant shift to Unicode representations of integer-valued terminal symbols.
+            `from_file`: `str` - filepath specifying weights for this PFSA. `num_symbols` and `num_states` will be ignored.
+            `num_symbols`: `int` - the number of symbols in the grammar. Used if `from_file` is None.
+            `num_states`: `int` - the number of hidden states in the grammar. Used if `from_file` is None.
         """
 
-        self.cpu_generator = torch.Generator('cpu')
+        # formalism-specific init
+        self.num_states: int = num_states
 
-        if torch.backends.mps.is_available():
-            self.gpu_generator = torch.Generator('mps')
-        elif torch.cuda.is_available():
-            self.gpu_generator = torch.Generator('cuda')
-        else:
-            self.gpu_generator = None
+        # load weights and validate
+        super().__init__(
+            seed,
+            device,
+            chr_ord_offset,
+            from_file,
+            num_symbols
+        )
 
-        if seed is not None:
-            self.cpu_generator.manual_seed(seed)
-            if self.gpu_generator is not None:
-                self.gpu_generator.manual_seed(seed)
-
-        if device is None or device == 'cpu' or device == torch.device('cpu') or self.gpu_generator is None:
-            self.generator = self.cpu_generator
-        else:
-            self.generator = self.gpu_generator
-
-        self.chr_ord_offset = chr_ord_offset
-
-        if file is None:
-
-            self.transitions = torch.randn(
-                (num_symbols, num_states, num_states + 1),
-                device=device,
-                generator=self.generator
-            ).softmax(2)
-
-            self.pi = torch.randn(
-                (num_states,),
-                device=device,
-                generator=self.generator
-            ).softmax(0)
-
-            self.num_symbols: int = num_symbols
-            self.num_states: int = num_states
-
-        else:
-        
-            if type(file) == str:
-                data = torch.load(file, map_location=device)
-                self.pi = data['pi']
-                self.transitions = data['transitions']
-            else:
-                raise TypeError(
-                    f"Expected transitions to be a string or Torch tensor but got: {type(file)}"
-                )
-
-            self.num_symbols: int = self.transitions.shape[0]
-            self.num_states: int = self.transitions.shape[1]
-            assert self.transitions.shape[1] == self.transitions.shape[2]
-            assert self.pi.shape[0] == self.transitions.shape[1]
-
-        if device is None:
-            self.device = 'cpu'
-        else:
-            self.device = device
-
-        self.states_ordered: list[int] = [
+        # formalism-specific data to keep track of, computed last
+        self.Q_ordered: list[int] = [
             x for x in range(self.num_states)
         ]
+        self.Q = set(self.Q_ordered)
 
-        self.symbols_ordered: list[str] = [
-            chr(x + chr_ord_offset) for x in range(self.num_symbols)
-        ]
+        self.validate()
 
-        self.Q = set(self.states_ordered)
-        assert len(self.Q) == len(self.states_ordered) == self.num_states
-        self.Sigma = set(self.symbols_ordered)
-        assert len(self.Sigma) == len(self.symbols_ordered) == self.num_symbols
+    def validate(self):
+        super().validate()
+        assert self.transitions.shape[0] == self.transitions.shape[2] - 1
+        assert self.pi.shape[0] == self.transitions.shape[0]
+        assert len(self.Q) == len(self.Q_ordered) == self.num_states
+        assert torch.allclose(self.pi.sum(), torch.tensor(1., device=self.device))
+        assert torch.allclose(self.transitions.sum(1).sum(1), torch.tensor(1., device=self.device))
 
-        self.pad_id = self.num_symbols
+    def init_weights(self):
 
-        if not torch.allclose(self.transitions.sum(2), torch.tensor(1., device=self.device)):
-            print(f'Warning: probability distributions not summing to 1.')
+        # self.pi[ord('a') - self.chr_ord_offset] = p(start with 'a')
+        self.pi = nn.Parameter(torch.randn(
+            (self.num_states,),
+            device=self.device,
+            generator=self.generator
+        ).softmax(0))
+
+        # self.transitions[ord('a') - self.chr_ord_offset, i, j] = p(transition from state i to state j by emitting 'a')
+        self.transitions = nn.Parameter(torch.randn(
+            (self.num_states, self.num_symbols, self.num_states + 1), # +1 for accept state
+            device=self.device,
+            generator=self.generator
+        ).flatten(start_dim=1).softmax(1).reshape(self.num_states, self.num_symbols, self.num_states + 1))
+
+        super().init_weights() # turn off gradients
+
+    def load(self, fp: str):
+        data = torch.load(fp, map_location=self.device)
+        self.pi: torch.Tensor = data['pi']
+        self.transitions: torch.Tensor = data['transitions']
+
+        # infer num_symbols and num_states from loaded data
+        self.num_symbols: int = self.transitions.shape[0]
+        self.num_states: int = self.transitions.shape[1]
 
     def save(self, fp: str):
         torch.save(
@@ -117,251 +95,254 @@ class PFSA:
         )
         print(f'Saved pi and transitions to {fp} successfully.')
 
-    def tokenize(self, seq: str, return_tensors=None) -> Union[list[int], torch.Tensor]:
+    def p_seq(self, seq: Union[str, Sequence, list[int]]): # TODO
 
-        ids = [
-            ord(x - self.chr_ord_offset) for x in seq
-        ]
-
-        if return_tensors == 'pt':
-            return torch.tensor(ids, dtype=int, device=self.device)
-        else:
-            return ids
+        tokens = self.tokenize(seq)
         
-    def batch_tokenize(
-        self,
-        seqs: Iterable[str],
-        return_tensors=None,
-        truncate_length=None
-    ) -> dict[str, Union[list[int], torch.Tensor]]:
-        
-        input_ids = [self.tokenize(t) for t in seqs]
-
-        if truncate_length is not None:
-            for i in range(len(input_ids)):
-                input_ids[i] = input_ids[i][:truncate_length]
-
-        pad_mask = [[1 for _ in id_list] for id_list in input_ids]
-
-        longest = 0
-        for id_list in input_ids:
-            length = len(id_list)
-            if length > longest:
-                longest = length
-        
-        for i in range(len(input_ids)):
-            while len(input_ids[i]) < longest:
-                input_ids[i].append(self.pad_id)
-                pad_mask[i].append(0)
-
-        if return_tensors == 'pt':
-            input_ids = torch.tensor(input_ids, dtype=int, device=self.device)
-            pad_mask = torch.tensor(pad_mask, dtype=int, device=self.device)
-
-        return {
-            'input_ids': input_ids,
-            'attention_mask': pad_mask
-        }
-    
-    def untokenize(self, seq: Union[list[int], torch.Tensor]) -> str:
-
-        if type(seq) == torch.Tensor:
-            as_list = seq.tolist()
-        else:
-            as_list = seq
-
-        return ''.join([chr(s + self.chr_ord_offset) for s in as_list])
-    
-    def p_seq(self, seq): # TODO
         return 0
     
-    def _generate_one(self, max_length: int) -> str: # TODO
-        pass
+    def _generate_one(self, max_length: int) -> Sequence:
 
-    def generate(
-        self,
-        max_length: int = 128,
-        num_seqs: int = 1,
-        max_threads: int = None
-    ) -> list[str]:
+        seq = []
         
-        if max_length is None or max_length <= 0:
-            max_length = torch.inf
+        curr_state = torch.multinomial(
+            self.pi,
+            num_samples=1,
+            generator=self.generator
+        ).item()
 
-        with ThreadPoolExecutor(max_workers=max_threads) as executor:
-            futures = [
-                executor.submit(self._generate_one, max_length)
-                for _ in range(num_seqs)
-            ]
-            seqs = [future.result() for future in futures]
-
-        return seqs
+        while len(seq) < max_length:
+            if curr_state == self.num_states:
+                break
+            next_symbol, next_state = self._idx_to_symbol_state_pair(
+                torch.multinomial(
+                    self.transitions[curr_state].flatten(),
+                    num_samples=1,
+                    generator=self.generator
+                ).item()
+            )
+            seq.append(next_symbol)
+            curr_state = next_state
+        
+        return Sequence(self.untokenize(seq, False))
     
-    def entropy(self) -> torch.Tensor: # TODO
+    def entropy(self) -> torch.Tensor: # GENERATED WITH CLAUDE
+        """
+        Compute entropy over sequences for a PFSA.
         
-        P = self.transitions.sum(0) # sum over symbol dimension
-
-        stop_probs = self.transitions[:, :, -1]
-
-    def _get_steady_state(self) -> torch.Tensor: # TODO
-
-        pass
+        The PFSA defines a Markov chain over states. We compute:
+        1. Stationary distribution π over non-absorbing states
+        2. For each state, the conditional entropy of emissions (symbols + stop)
+        3. Total entropy: H = Σ_i π(i) * H(emissions | state i)
+        """
+        
+        # Build state transition matrix: P[i, j] = prob of going from state i to state j
+        # (ignoring which symbol was emitted, just the destination state)
+        # Shape: (num_states, num_states + 1) where last column is absorbing state
+        
+        # self.transitions shape: (num_states, num_symbols, num_states + 1)
+        # Sum over symbols to get state-to-state transitions
+        P = self.transitions.sum(dim=1)  # shape: (num_states, num_states + 1)
+        
+        # Extract only transitions to non-absorbing states for stationary distribution
+        P_non_absorbing = P[:, :-1]  # shape: (num_states, num_states)
+        
+        # Normalize each row to be a probability distribution over next states
+        # (we'll condition on not stopping)
+        P_non_absorbing_normalized = P_non_absorbing / (P_non_absorbing.sum(dim=1, keepdim=True) + 1e-10)
+        
+        # Compute stationary distribution via power iteration
+        pi = self._compute_stationary_distribution_pfsa(P_non_absorbing_normalized)
+        
+        # Compute conditional entropy for each state
+        # Each state has a transition matrix of shape (num_symbols, num_states + 1)
+        # H(state i) = -Σ_k P(k | state i) * log P(k | state i)
+        # where k ranges over all (symbol, next_state) pairs
+        
+        # Flatten transitions for each state and compute entropy
+        # self.transitions[i] has shape (num_symbols, num_states + 1)
+        # Flatten to (num_symbols * (num_states + 1),)
+        
+        conditional_entropies = torch.zeros(self.num_states, device=self.device)
+        
+        for i in range(self.num_states):
+            state_transitions = self.transitions[i]  # shape: (num_symbols, num_states + 1)
+            flattened = state_transitions.flatten()  # shape: (num_symbols * (num_states + 1),)
+            
+            # Compute entropy of this flattened distribution
+            conditional_entropies[i] = -(flattened * torch.log(flattened + 1e-10)).sum()
+        
+        # Total entropy: weight each state's conditional entropy by its stationary probability
+        total_entropy = (pi * conditional_entropies).sum()
+        
+        return total_entropy
 
     def optimize(
         self,
         H_t: float,
         do_logging: bool = True,
-        tol: float = 1e-6,
-        lr: float = 0.001,
+        tol: float = 1e-6, 
+        lr: float = 0.01,
         log_freq: int = 1000,
         max_iter: int = 100_000,
         max_time: float = 300.0,
-        K: int = 1000
-    ) -> tuple[torch.Tensor, float, float, list[float]]:
-        
+        K: int = 1000,
+        max_retries: int = 4
+    ) -> bool:
+    
         losses = []
-        
         DH = torch.tensor(H_t, dtype=torch.float32, requires_grad=False, device=self.device)
-        criterion = torch.nn.MSELoss()
+        criterion = nn.MSELoss()
         if do_logging:
             print(f'criterion: {criterion.__class__.__name__}')
             print(f'Testing {K} random initializations...')
 
         with torch.no_grad():
-            # Compute initial loss with current rules
-            normalized_current_pi = self.pi.softmax(0)
-            normalized_current_transitions = self.transitions.softmax(2)
-
-            original_pi = self.pi
-            original_transitions = self.transitions
+            # Normalize current
+            pi_norm = self.pi.softmax(0)
+            trans_norm = self.transitions.flatten(start_dim=1).softmax(1).reshape(
+                self.num_states, self.num_symbols, self.num_states + 1
+            )
             
-            self.pi = normalized_current_pi
-            self.transitions = normalized_current_transitions
-
+            pi_orig = self.pi.clone()
+            trans_orig = self.transitions.clone()
+            
+            self.pi = nn.Parameter(pi_norm)
+            self.transitions = nn.Parameter(trans_norm)
             best_loss = criterion(self.entropy(), DH).item()
-            best_pi = original_pi.clone()
-            best_transitions = original_transitions.clone()  # Store the raw rules
+            best_pi = pi_orig.clone()
+            best_transitions = trans_orig.clone()
             
             # Try K random initializations
             for k in range(K):
-                # Generate random tensor of same shape (raw values)
-                candidate_pi = torch.randn(
-                    self.pi.shape,
-                    device=self.device,
-                    generator=self.generator
-                )
-                candidate_pi_normalized = candidate_pi.softmax(0)
-                candidate_transitions = torch.randn(
-                    self.transitions.shape,
-                    device=self.device,
-                    generator=self.generator
-                )
-                candidate_transitions_normalized = candidate_transitions.softmax(2)
+                candidate_pi = torch.randn(self.pi.shape, device=self.device, generator=self.generator)
+                candidate_trans = torch.randn(self.transitions.shape, device=self.device, generator=self.generator)
                 
-                # Compute loss with candidate rules
-                self.pi = candidate_pi_normalized
-                self.transitions = candidate_transitions_normalized
+                pi_norm = candidate_pi.softmax(0)
+                trans_norm = candidate_trans.flatten(start_dim=1).softmax(1).reshape(
+                    self.num_states, self.num_symbols, self.num_states + 1)
+                
+                self.pi = nn.Parameter(pi_norm)
+                self.transitions = nn.Parameter(trans_norm)
                 candidate_loss = criterion(self.entropy(), DH).item()
                 
-                # Update best if this is better
                 if candidate_loss < best_loss:
                     best_loss = candidate_loss
                     best_pi = candidate_pi.clone()
-                    best_transitions = candidate_transitions.clone()  # Store raw values
+                    best_transitions = candidate_trans.clone()
                     if do_logging:
                         print(f'New best at initialization {k}: loss = {best_loss:.6f}')
-        
-        # Set rules to best found initialization
-        self.pi = best_pi
-        self.transitions = best_transitions
+
         if do_logging:
             print(f'Best initialization loss: {best_loss:.6f}')
             print('Starting optimization...')
         
-        self.pi = torch.nn.Parameter(self.pi)
-        self.transitions = torch.nn.Parameter(self.transitions)
+        self.pi = nn.Parameter(best_pi)
+        self.transitions = nn.Parameter(best_transitions)
         best_optimization_loss = float('inf')
         best_optimization_pi = None
         best_optimization_transitions = None
         optimizer = torch.optim.AdamW([self.pi, self.transitions], lr=lr)
-        
+
         i = 0
-        if do_logging:
-            print('-----------------------------------------------------')
         start = time()
         while True:
-            
             optimizer.zero_grad()
             
-            normalized_pi = self.pi.softmax(0)
-            normalized_transitions = self.transitions.softmax(2)
-
-            original_pi = self.pi
-            original_transitions = self.transitions
-
-            self.pi = normalized_pi
-            self.transitions = normalized_transitions
-
+            pi_backup = self.pi.data.clone()
+            trans_backup = self.transitions.data.clone()
+            
+            self.pi.data = self.pi.softmax(0)
+            self.transitions.data = self.transitions.flatten(start_dim=1).softmax(1).reshape(
+                self.num_states, self.num_symbols, self.num_states + 1)
+            
             loss = criterion(self.entropy(), DH)
-
-            self.pi = original_pi
-            self.transitions = original_transitions
-
             loss.backward()
+            
+            self.pi.data = pi_backup
+            self.transitions.data = trans_backup
             optimizer.step()
             
             if (i % log_freq == 0):
                 with torch.no_grad():
-
                     loss_val = loss.item()
-                    
                     if do_logging:
                         print(f'loss: {loss_val:.4}')
                     if loss_val < best_optimization_loss:
                         best_optimization_loss = loss_val
                         best_optimization_pi = self.pi.clone().detach()
                         best_optimization_transitions = self.transitions.clone().detach()
-
+                    
                     if loss_val < tol:
                         break
-
+                    
                     losses.append(loss_val)
-                    if len(losses) > 1:
-                        if abs(losses[-1] - losses[-2]) < tol:
-                            if losses[-1] >= tol:
-                                msg = 'Optimization did not converge!'
-                                Warning(msg)
-                            break
-                        
+                    if len(losses) > 1 and abs(losses[-1] - losses[-2]) < tol:
+                        if losses[-1] >= tol:
+                            Warning('Optimization did not converge!')
+                        break
+                
                 if ((time() - start) > max_time) or (i > max_iter):
-                    msg = 'Optimization did not converge!'
-                    Warning(msg)
+                    Warning('Optimization did not converge!')
                     break
-
+            
             i += 1
-        
-        with torch.no_grad():
-            if best_optimization_pi is not None:
-                self.pi = best_optimization_pi.softmax(0).detach()
-            else:
-                self.pi = self.pi.softmax(0).detach()
-            if best_optimization_transitions is not None:
-                self.transitions = best_optimization_transitions.softmax(2).detach()
-            else:
-                self.transitions = self.transitions.softmax(2).detach()
-        
-    def to(self, device: Union[str, torch.device]):
-        self.pi = self.pi.to(device)
-        self.transitions = self.transitions.to(device)
-        self.device = device
-        if device == 'cpu' or device == torch.device('cpu'):
-            self.generator = self.cpu_generator
-        else:
-            self.generator = self.gpu_generator
-            if self.generator is None:
-                print(f'No GPU generator available - does this machine have a GPU?')
-        return self
+
+        if best_optimization_pi is not None:
+            self.pi = nn.Parameter(best_optimization_pi)
+            self.transitions = nn.Parameter(best_optimization_transitions)
+
+        self.pi.data = self.pi.softmax(0)
+        self.transitions.data = self.transitions.flatten(start_dim=1).softmax(1).reshape(
+            self.num_states, self.num_symbols, self.num_states + 1
+        )
+
+        for param in self.parameters():
+            param.requires_grad = False
+
+        return True
     
+    def _compute_stationary_distribution_pfsa(
+        self, P: torch.Tensor, max_iters: int = 1000, tol: float = 1e-8
+    ) -> torch.Tensor: # GENERATED WITH CLAUDE
+        """
+        Compute stationary distribution for PFSA state transitions.
+        
+        Args:
+            P: transition matrix of shape (num_states, num_states) with rows summing to 1
+            max_iters: maximum number of power iterations
+            tol: convergence tolerance
+        
+        Returns:
+            Stationary distribution π where π = π · P
+        """
+        
+        num_states = P.shape[0]
+        
+        # Initialize uniformly
+        pi = torch.ones(num_states, device=self.device) / num_states
+        
+        for _ in range(max_iters):
+            pi_new = pi @ P
+            
+            # Renormalize (in case of numerical issues)
+            pi_new = pi_new / (pi_new.sum() + 1e-10)
+            
+            if torch.allclose(pi, pi_new, atol=tol):
+                break
+            
+            pi = pi_new
+        
+        return pi
+
+    def _idx_to_symbol_state_pair(self, idx: int) -> tuple[int]:
+        div = self.num_states + 1
+        return (idx // div, idx % div)
+    
+    def _symbol_state_pair_to_idx(self, symbol_state_pair: tuple[int]) -> int:
+        mult = self.num_states + 1
+        return symbol_state_pair[0] * mult + symbol_state_pair[1]
+
 class PFSADataset(SequenceDataset):
 
     def __init__(
