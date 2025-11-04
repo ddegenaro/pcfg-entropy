@@ -69,7 +69,8 @@ def train_epoch(
     eval_every: int,
     val_data: SequenceDataset,
     rhos: dict[int, float],
-    ces: dict[int, float]
+    ces: dict[int, float],
+    p_true: list[float]
 ):
     
     model.train()
@@ -105,7 +106,8 @@ def train_epoch(
             rho, ce = val_epoch(
                 val_data,
                 model,
-                step
+                step,
+                p_true
             )
     
             rhos[step] = rho
@@ -114,28 +116,30 @@ def train_epoch(
 def val_epoch(
     val_data: SequenceDataset,
     model: torch.nn.Module,
-    step: int
+    step: int,
+    p_true: list[float]
 ):
 
     do_log('-' * 100)
     do_log(f'Begin eval after {step} steps.')
     do_log('-' * 100)
 
-    return both_metrics(val_data, model)
+    return both_metrics(val_data, model, p_true)
 
 def train_model(
     grammar: Grammar,
     train_data: SequenceDataset,
     val_data: SequenceDataset,
     n_embd: int = 256,
-    n_hidden: int = 256,
+    n_hidden: int = 128,
     n_layer: int = 6,
     n_head: int = 4,
     n_positions: int = 256,
     lr: int = 1e-3,
     wd: int = 1e-5,
     max_epochs: int = 20,
-    log_freq: int = 1000,
+    log_freq: int = 100,
+    eval_every: int = 1000,
     trf_or_lstm: str = 'trf'
 ):
     
@@ -190,6 +194,8 @@ def train_model(
     with open(os.path.join(this_experiment_dir, 'hparams.json'), 'w+', encoding='utf-8') as f:
         json.dump(hparams, f, indent=4)
 
+    p_true = [grammar.p_seq(seq).item() for seq in val_data]
+
     for epoch in max_epochs:
         train_epoch(
             grammar=grammar,
@@ -200,10 +206,11 @@ def train_model(
             train_losses=train_losses,
             train_tokens=train_tokens,
             log_freq=log_freq,
-            eval_every=1_000, # evaluate every X steps
+            eval_every=eval_every, # evaluate every X steps
             val_data=val_data,
             rhos=rhos,
-            ces=ces
+            ces=ces,
+            p_true=p_true
         )
 
     with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'w+', encoding='utf-8') as f:

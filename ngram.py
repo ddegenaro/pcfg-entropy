@@ -278,7 +278,7 @@ class NGram(Grammar):
                 with torch.no_grad():
                     loss_val = loss.item()
                     if do_logging:
-                        print(f'loss: {loss_val:.4}')
+                        print(f'loss: {loss_val:.4}', end='\r')
                     if loss_val < best_optimization_loss:
                         best_optimization_loss = loss_val
                         best_optimization_probs = {str(j): self.probs[str(j)].clone().detach() for j in range(self.order)}
@@ -398,6 +398,7 @@ class NGram(Grammar):
         return out
 
 
+
 class NGramDataset(SequenceDataset):
     def __init__(
         self,
@@ -410,5 +411,3 @@ class NGramDataset(SequenceDataset):
             num_seqs=num_seqs,
             max_length=max_length
         )
-
-    

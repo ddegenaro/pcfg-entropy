@@ -43,27 +43,28 @@ def get_sequence_probabilities(logits, input_ids, attention_mask): # GENERATED W
     return seq_probs, seq_log_probs
 
 
+
 def both_metrics(
-    test_set: SequenceDataset,
-    model: Union[LSTM, GPT2LMHeadModel]
+    val_data: SequenceDataset,
+    model: Union[LSTM, GPT2LMHeadModel],
+    p_true: list[float]
 ):
 
     """
     Sequence-wise spearman rho over whole test set - get true probs vs LM predicted probs.
     """
 
-    p_true = [test_set.grammar.p_seq(seq).item() for seq in test_set]
     p_model = []
 
     if type(model) == LSTM:
         def tokenize(batch):
-            return test_set.grammar.batch_tokenize(
+            return val_data.grammar.batch_tokenize(
                 batch,
                 return_tensors='pt'
             )
     elif type(model) == GPT2LMHeadModel:
         def tokenize(batch):
-            return test_set.grammar.batch_tokenize(
+            return val_data.grammar.batch_tokenize(
                 batch,
                 return_tensors='pt',
                 truncate_length=model.n_positions
@@ -77,7 +78,7 @@ def both_metrics(
     model.eval()
     with torch.no_grad():
         for _, batch in enumerate(
-            SequenceDataLoader(test_set, batch_size=32)
+            SequenceDataLoader(val_data, batch_size=32)
         ):
             inputs = tokenize(batch)
             outputs = model(**inputs)

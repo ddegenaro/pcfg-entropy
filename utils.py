@@ -1,7 +1,8 @@
 from random import Random
 from typing import Union, Iterable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from tqdm import tqdm
 import torch
 from torch import nn
 import networkx as nx
@@ -161,6 +162,8 @@ class Sequence:
     def __getitem__(self, idx):
         return self.str_data[idx]
 
+
+
 class Grammar(nn.Module):
 
     def __init__(
@@ -245,24 +248,10 @@ class Grammar(nn.Module):
     def entropy(self) -> torch.Tensor:
         raise NotImplementedError
 
-    def _apply_normalized_params(self):
-        """
-        Apply normalized parameters to the model for entropy computation.
-        Must be overridden in subclasses.
-        """
-        raise NotImplementedError("Subclasses must implement _apply_normalized_params()")
-
-    def _restore_raw_params(self, raw_params: dict):
-        """
-        Restore raw parameters after entropy computation.
-        Must be overridden in subclasses.
-        """
-        raise NotImplementedError("Subclasses must implement _restore_raw_params()")
-
     def optimize(self):
         raise NotImplementedError
     
-    def estimated_mlu(self):
+    def estimated_mls(self):
         tol = 1e-3
         last_estimate = -1.
         total_seqs = 0
@@ -366,12 +355,13 @@ class Grammar(nn.Module):
             if self.generator is None:
                 print(f'No GPU generator available - does this machine have a GPU?')
         return self
-    
+
     def generate(
         self,
         max_length: int = 128,
         num_seqs: int = 1,
-        max_threads: int = None
+        max_threads: int = None,
+        do_logging: bool = False
     ) -> list[Sequence]:
         
         if max_length is None or max_length <= 0:
@@ -382,7 +372,13 @@ class Grammar(nn.Module):
                 executor.submit(self._generate_one, max_length)
                 for _ in range(num_seqs)
             ]
-            seqs = [future.result() for future in futures]
+            if do_logging:
+                seqs = [
+                    future.result() 
+                    for future in tqdm(as_completed(futures), total=num_seqs)
+                ]
+            else:
+                seqs = [future.result() for future in futures]
 
         return seqs
 
@@ -419,7 +415,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         self,
         grammar: Grammar,
         num_seqs: int = 100,
-        max_length: int = 128
+        max_length: int = 128,
+        do_logging: bool = True
     ):
         
         super().__init__()
@@ -430,7 +427,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.max_length = max_length
         self.seqs: list[Sequence] = self.grammar.generate(
             max_length=max_length,
-            num_seqs=num_seqs
+            num_seqs=num_seqs,
+            do_logging=do_logging
         )
 
         self.m_local_entropies = {}
@@ -579,8 +577,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         E = 0.
         order = 1
 
-        # TODO: theoretical MLU
-        h = self.grammar.entropy().item() / self.grammar.estimated_mlu()
+        # TODO: theoretical MLS
+        h = self.grammar.entropy().item() / self.grammar.estimated_mls()
 
         # TODO: this is probably not right, though it seems pretty good
         while True:
@@ -611,6 +609,8 @@ class SequenceDataset(torch.utils.data.Dataset):
                     Random(window_size).shuffle(window)
                     for k in range(len(window)):
                         tokens[j + k] = window[k]
+
+
 
 class SequenceDataLoader(torch.utils.data.DataLoader):
 

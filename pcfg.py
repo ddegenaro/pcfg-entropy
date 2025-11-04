@@ -221,7 +221,7 @@ class PCFG(Grammar):
                     loss_val = loss.item()
                     
                     if do_logging:
-                        print(f'loss: {loss_val:.4}')
+                        print(f'loss: {loss_val:.4}', end='\r')
                     if loss_val < best_optimization_loss:
                         best_optimization_loss = loss_val
                         best_optimization_rules = self.rules.clone().detach()
@@ -285,11 +285,11 @@ class PCFG(Grammar):
         """
 
         if symbol2 is None:
-            assert symbol1 in self.Sigma, f"{symbol1} is not a terminal."
+            # assert symbol1 in self.Sigma, f"{symbol1} is not a terminal."
             return ord(symbol1) - self.chr_ord_offset
         else:
-            assert symbol1 in self.N, f"{symbol1} is not a non-terminal (or is the start symbol)."
-            assert symbol2 in self.N, f"{symbol2} is not a non-terminal (or is the start symbol)."
+            # assert symbol1 in self.N, f"{symbol1} is not a non-terminal (or is the start symbol)."
+            # assert symbol2 in self.N, f"{symbol2} is not a non-terminal (or is the start symbol)."
             # - 1 accounts for excluding start
             return self.num_symbols + (symbol1 - 1) * self.num_non_terminals + (symbol2 - 1)
 
@@ -311,7 +311,7 @@ class PCFG(Grammar):
         Check whether this index from the rules represents a terminal rule.
         """
 
-        assert index >= 0, f'Index {index} should not be negative'
+        # assert index >= 0, f'Index {index} should not be negative'
 
         return index < self.num_symbols
     
@@ -327,7 +327,7 @@ class PCFG(Grammar):
         non-terminal symbols provided.
         """                
         
-        assert non_terminal in self.NUS, f"{non_terminal} is not a non-terminal."
+        # assert non_terminal in self.NUS, f"{non_terminal} is not a non-terminal."
         if symbol2 is None:
             return self.rules[non_terminal, self._symbols_to_column_index(symbol1)]
         else:
@@ -337,7 +337,7 @@ class PCFG(Grammar):
         if len(tree.frontier) > 0:
             expansion_point: Node = tree.frontier.pop(0)
             symbol = expansion_point.data
-            assert symbol in self.NUS, f"Found terminal symbol {symbol} in frontier."
+            # assert symbol in self.NUS, f"Found terminal symbol {symbol} in frontier."
             sampled_rule_index: int = torch.multinomial(
                 self.rules[symbol], num_samples = 1, generator=self.generator
             ).item()
@@ -363,10 +363,10 @@ class PCFG(Grammar):
         return False
 
     def _is_expanded(self, tree: Tree) -> bool:
-        for leaf in tree.leaves:
-            if leaf.data not in self.Sigma:
-                tree.show()
-                raise Exception(f'Found a non-terminal leaf: {leaf.data} which is not in {self.Sigma}')
+        # for leaf in tree.leaves:
+        #     if leaf.data not in self.Sigma:
+        #         tree.show()
+        #         raise Exception(f'Found a non-terminal leaf: {leaf.data} which is not in {self.Sigma}')
         return len(tree.frontier) == 0
 
     def _char_matrix(self) -> torch.Tensor:
@@ -473,5 +473,3 @@ class PCFGDataset(SequenceDataset):
             num_seqs=num_seqs,
             max_length=max_length
         )
-    
-    

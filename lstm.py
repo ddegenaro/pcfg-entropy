@@ -8,6 +8,8 @@ class LSTMOutput:
         self.loss = loss
         self.logits = logits
 
+
+
 class LSTM(nn.Module):
 
     def __init__(
@@ -22,6 +24,7 @@ class LSTM(nn.Module):
         self.vocab_size = vocab_size
         self.pad_token_id = pad_token_id
         self.n_embd = n_embd
+        self.n_hidden = n_hidden
         self.n_layer = n_layer
 
         self.embedding = nn.Embedding(
@@ -31,12 +34,14 @@ class LSTM(nn.Module):
         )
 
         self.lstm = nn.LSTM(
-            input_size=n_embd,
-            hidden_size=n_hidden,
-            num_layers=n_layer,
+            input_size=self.n_embd,
+            hidden_size=self.n_hidden,
+            num_layers=self.n_layer,
             batch_first=True,
             dropout=0.1
         )
+
+        self.lm_head = nn.Linear(self.n_hidden, self.vocab_size)
 
     def forward(self, input_ids, attention_mask):
         # Embed first (before packing)
@@ -53,6 +58,8 @@ class LSTM(nn.Module):
 
         # Unpack LSTM output
         unpacked_out, _ = pad_packed_sequence(lstm_out, batch_first=True)
+
+        print(unpacked_out.shape)
         
         # Project to vocabulary size
         logits = self.lm_head(unpacked_out)  # Shape: (B, T, vocab_size)

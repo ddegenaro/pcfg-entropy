@@ -250,6 +250,7 @@ class PFSA(Grammar):
         optimizer = torch.optim.AdamW([self.pi, self.transitions], lr=lr)
 
         i = 0
+        flag = True
         start = time()
         while True:
             optimizer.zero_grad()
@@ -272,7 +273,7 @@ class PFSA(Grammar):
                 with torch.no_grad():
                     loss_val = loss.item()
                     if do_logging:
-                        print(f'loss: {loss_val:.4}')
+                        print(f'loss: {loss_val:.4}', end='\r')
                     if loss_val < best_optimization_loss:
                         best_optimization_loss = loss_val
                         best_optimization_pi = self.pi.clone().detach()
@@ -285,10 +286,12 @@ class PFSA(Grammar):
                     if len(losses) > 1 and abs(losses[-1] - losses[-2]) < tol:
                         if losses[-1] >= tol:
                             Warning('Optimization did not converge!')
+                            flag = False
                         break
                 
                 if ((time() - start) > max_time) or (i > max_iter):
                     Warning('Optimization did not converge!')
+                    flag = False
                     break
             
             i += 1
@@ -305,7 +308,7 @@ class PFSA(Grammar):
         for param in self.parameters():
             param.requires_grad = False
 
-        return True
+        return flag
     
     def _compute_stationary_distribution_pfsa(
         self, P: torch.Tensor, max_iters: int = 1000, tol: float = 1e-8
@@ -347,6 +350,8 @@ class PFSA(Grammar):
     def _symbol_state_pair_to_idx(self, symbol_state_pair: tuple[int]) -> int:
         mult = self.num_states + 1
         return symbol_state_pair[0] * mult + symbol_state_pair[1]
+
+
 
 class PFSADataset(SequenceDataset):
 
