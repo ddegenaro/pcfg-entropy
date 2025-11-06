@@ -86,7 +86,7 @@ class PCFG(Grammar):
         torch.save(self.rules.cpu(), fp)
         print(f'Saved rules to {fp} successfully.')
 
-    def p_seq(self, seq: Union[Sequence, Tree]):
+    def p_seq(self, seq: Union[Sequence, Tree]) -> torch.Tensor:
         val = torch.tensor(1., device=self.device)
 
         if type(seq) == Sequence:

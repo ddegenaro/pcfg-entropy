@@ -1,12 +1,14 @@
 import os
 import json
+from typing import Union
 
+from tqdm import tqdm
 import torch
 from torch.optim import AdamW
 from transformers import GPT2Config, GPT2LMHeadModel
 
 from lstm import LSTM
-from utils import Grammar, SequenceDataset
+from utils import Grammar, SequenceDataset, SequenceDataLoader
 from metrics import both_metrics
 
 def create_model_and_optimizer(
@@ -19,7 +21,7 @@ def create_model_and_optimizer(
     lr: int,
     wd: int,
     model_type: str
-):
+) -> Union[tuple[LSTM, AdamW, int], tuple[GPT2LMHeadModel, AdamW, int]]:
     
     if model_type == 'trf':
         model = GPT2LMHeadModel(
@@ -58,8 +60,7 @@ def do_log(msg: str):
     print(msg, flush=True)
 
 def train_epoch(
-    grammar: Grammar,
-    train_data: SequenceDataset,
+    train_data_loader: SequenceDataLoader,
     model: torch.nn.Module,
     optimizer: AdamW,
     epoch: int,
@@ -67,7 +68,7 @@ def train_epoch(
     train_tokens: list[int],
     log_freq: int,
     eval_every: int,
-    val_data: SequenceDataset,
+    val_data_loader: SequenceDataLoader,
     rhos: dict[int, float],
     ces: dict[int, float],
     p_true: list[float]
@@ -82,9 +83,12 @@ def train_epoch(
     do_log(f'Begin training epoch {epoch}.')
     do_log('-' * 100)
 
-    for i, batch in enumerate(train_data):
+    step = len(train_data_loader) * epoch
+
+    for batch in tqdm(train_data_loader, total=len(train_data_loader)):
+
+        batch['labels'] = batch['input_ids']
         
-        batch = grammar.batch_tokenize(batch, return_tensors='pt')
         outputs = model(**batch)
         outputs.loss.backward()
         optimizer.step()
@@ -96,25 +100,25 @@ def train_epoch(
         train_losses.append(loss)
         train_tokens.append(tokens)
         avg_loss = running_total_train_loss / running_total_train_tokens
-        step = i + 1
+        step += 1
 
         if step % log_freq == 0:
-            msg = f'Epoch: {epoch:03d} - Step: {step:05d} - Loss: {loss:.4f} - Avg: {avg_loss:.4f}'
+            msg = f'Epoch: {epoch:03d} - Step: {step:05d} - Loss: {loss:.4f} - Avg/tok: {avg_loss:.4f}'
             do_log(msg)
 
         if step % eval_every == 0:
             rho, ce = val_epoch(
-                val_data,
-                model,
-                step,
-                p_true
+                val_data_loader=val_data_loader,
+                model=model,
+                step=step,
+                p_true=p_true
             )
     
             rhos[step] = rho
             ces[step] = ce
 
 def val_epoch(
-    val_data: SequenceDataset,
+    val_data_loader: SequenceDataLoader,
     model: torch.nn.Module,
     step: int,
     p_true: list[float]
@@ -124,7 +128,11 @@ def val_epoch(
     do_log(f'Begin eval after {step} steps.')
     do_log('-' * 100)
 
-    return both_metrics(val_data, model, p_true)
+    return both_metrics(
+        val_data_loader=val_data_loader,
+        model=model,
+        p_true=p_true
+    )
 
 def train_model(
     grammar: Grammar,
@@ -140,15 +148,19 @@ def train_model(
     max_epochs: int = 20,
     log_freq: int = 100,
     eval_every: int = 1000,
-    trf_or_lstm: str = 'trf'
+    trf_or_lstm: str = 'trf',
+    batch_size: int = 32,
+    is_test_run: bool = False
 ):
     
     if not os.path.exists('experiments'):
         os.makedirs('experiments')
         this_experiment = '1'
     else:
-        experiments = [int(x) for x in os.listdir('experiments')]
-        this_experiment = max(experiments) + 1
+        experiments = [int(x.replace('_test', '')) for x in os.listdir('experiments')]
+        this_experiment = str(max(experiments) + 1)
+    if is_test_run:
+        this_experiment += '_test'
     this_experiment_dir = os.path.join('experiments', this_experiment)
     os.makedirs(this_experiment_dir)
     
@@ -167,6 +179,22 @@ def train_model(
         lr=lr,
         wd=wd,
         model_type=trf_or_lstm
+    )
+
+    print(f'Building train dataloader...')
+    train_data_loader = SequenceDataLoader(
+        ds=train_data,
+        batch_size=batch_size,
+        shuffle=True,
+        max_length=n_positions
+    )
+
+    print(f'Building val dataloader...')
+    val_data_loader = SequenceDataLoader(
+        ds=val_data,
+        batch_size=batch_size,
+        shuffle=False,
+        max_length=n_positions
     )
 
     hparams = {
@@ -191,15 +219,25 @@ def train_model(
         'param_count': param_count
     }
 
-    with open(os.path.join(this_experiment_dir, 'hparams.json'), 'w+', encoding='utf-8') as f:
+    hparams_loc = os.path.join(this_experiment_dir, 'hparams.json')
+    print(f'Writing hparams to {hparams_loc}')
+    with open(hparams_loc, 'w+', encoding='utf-8') as f:
         json.dump(hparams, f, indent=4)
 
-    p_true = [grammar.p_seq(seq).item() for seq in val_data]
+    print(f'Computing p_true...')
+    p_true = [grammar.p_seq(seq).item() for seq in tqdm(val_data, total=len(val_data))]
 
-    for epoch in max_epochs:
+    for epoch in range(max_epochs):
+
+        torch.manual_seed(
+            torch.randint(
+                low=0, high=max_epochs**2, size=(1,),
+                generator=grammar.cpu_generator
+            ).item()
+        )
+
         train_epoch(
-            grammar=grammar,
-            train_data=train_data,
+            train_data_loader=train_data_loader,
             model=model,
             optimizer=optimizer,
             epoch=epoch,
@@ -207,7 +245,7 @@ def train_model(
             train_tokens=train_tokens,
             log_freq=log_freq,
             eval_every=eval_every, # evaluate every X steps
-            val_data=val_data,
+            val_data_loader=val_data_loader,
             rhos=rhos,
             ces=ces,
             p_true=p_true

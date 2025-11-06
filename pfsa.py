@@ -100,11 +100,31 @@ class PFSA(Grammar):
         )
         print(f'Saved pi and transitions to {fp} successfully.')
 
-    def p_seq(self, seq: Union[str, Sequence, list[int]]): # TODO
+    def p_seq(self, seq: Union[str, Sequence, list[int]]) -> torch.Tensor: # GENERATED WITH CLAUDE
 
+        """
+        Compute the probability of a sequence over all paths.
+        
+        Args:
+            tokens: torch.Tensor of shape (T,) with integer token ids
+        
+        Returns:
+            torch.Tensor of shape () - total probability of the sequence
+        """
         tokens = self.tokenize(seq)
         
-        return 0
+        # alpha[q] = probability of being in state q after emitting current token
+        # Initialize with initial distribution
+        alpha = self.pi.clone()  # Shape: (Q,)
+        
+        # Forward pass through sequence
+        for i in range(len(tokens)):
+            # Compute next alpha: sum over all previous states weighted by transition probs
+            # alpha_new[k] = sum_i alpha[i] * transitions[i][token][k]
+            alpha = torch.einsum('q,qk->k', alpha, self.transitions[:, tokens[i], :self.num_states])
+        
+        # Sum over final states to get total probability
+        return alpha.sum()
     
     def _generate_one(self, max_length: int) -> Sequence:
 
@@ -220,8 +240,16 @@ class PFSA(Grammar):
             
             # Try K random initializations
             for k in range(K):
-                candidate_pi = torch.randn(self.pi.shape, device=self.device, generator=self.generator)
-                candidate_trans = torch.randn(self.transitions.shape, device=self.device, generator=self.generator)
+                candidate_pi = torch.randn(
+                    self.pi.shape,
+                    device=self.device,
+                    generator=self.generator
+                )
+                candidate_trans = torch.randn(
+                    self.transitions.shape,
+                    device=self.device,
+                    generator=self.generator
+                )
                 
                 pi_norm = candidate_pi.softmax(0)
                 trans_norm = candidate_trans.flatten(start_dim=1).softmax(1).reshape(

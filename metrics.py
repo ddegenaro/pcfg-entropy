@@ -1,5 +1,6 @@
 from typing import Union
 
+from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 from scipy.stats import spearmanr
@@ -26,8 +27,8 @@ def get_sequence_probabilities(logits, input_ids, attention_mask): # GENERATED W
     # Gather log probabilities of the true tokens
     # Expand input_ids to match log_probs shape for gathering
     token_log_probs = torch.gather(
-        log_probs, 
-        dim=-1, 
+        log_probs,
+        dim=-1,
         index=input_ids.unsqueeze(-1)
     ).squeeze(-1)  # (B, T)
     
@@ -45,7 +46,7 @@ def get_sequence_probabilities(logits, input_ids, attention_mask): # GENERATED W
 
 
 def both_metrics(
-    val_data: SequenceDataset,
+    val_data_loader: SequenceDataLoader,
     model: Union[LSTM, GPT2LMHeadModel],
     p_true: list[float]
 ):
@@ -55,40 +56,24 @@ def both_metrics(
     """
 
     p_model = []
-
-    if type(model) == LSTM:
-        def tokenize(batch):
-            return val_data.grammar.batch_tokenize(
-                batch,
-                return_tensors='pt'
-            )
-    elif type(model) == GPT2LMHeadModel:
-        def tokenize(batch):
-            return val_data.grammar.batch_tokenize(
-                batch,
-                return_tensors='pt',
-                truncate_length=model.n_positions
-            )
-    else:
-        raise TypeError(f'model should not be of type {type(model)}')
     
     total_loss = 0.
     total_tokens = 0
     
     model.eval()
     with torch.no_grad():
-        for _, batch in enumerate(
-            SequenceDataLoader(val_data, batch_size=32)
-        ):
-            inputs = tokenize(batch)
-            outputs = model(**inputs)
+        for batch in tqdm(val_data_loader, total=len(val_data_loader)):
+
+            batch['labels'] = batch['input_ids']
+
+            outputs = model(**batch)
             logits = outputs.logits
             loss = outputs.loss.item()
-            tokens = inputs['attention_mask'].sum().item()
+            tokens = batch['attention_mask'].sum().item()
             total_loss += loss * tokens # reconstructed total loss over these tokens
             total_tokens += tokens
             p_model.extend(
-                get_sequence_probabilities(logits, inputs['input_ids'], inputs['attention_mask'])[0].tolist()
+                get_sequence_probabilities(logits, batch['input_ids'], batch['attention_mask'])[0].tolist()
             )
     
     model.train()

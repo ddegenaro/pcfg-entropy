@@ -569,7 +569,7 @@ class SequenceDataset(torch.utils.data.Dataset):
     
     def excess_entropy(self):
 
-        # TODO: Futrell and Hahn 2024. Requires entropy rate to be calculated/estimated.
+        # Futrell and Hahn 2024. Requires entropy rate to be calculated/estimated.
         # Entropy rate for n-grams and PFSAs should be trivial.
         # Entropy and entropy rate might be trivially related.
         # Can put a unigram distribution into this and hope for 0 b/c context is useless.
@@ -618,10 +618,16 @@ class SequenceDataLoader(torch.utils.data.DataLoader):
         self, 
         ds: SequenceDataset,
         batch_size: int = 32,
-        shuffle: bool = False
+        shuffle: bool = False,
+        max_length: int = 128
     ):
         super().__init__(
             ds,
             batch_size=batch_size,
-            shuffle=shuffle
+            shuffle=shuffle,
+            collate_fn=lambda x: ds.grammar.batch_tokenize(
+                x,
+                return_tensors='pt',
+                truncate_length=max_length
+            )
         )

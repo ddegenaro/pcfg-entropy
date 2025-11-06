@@ -9,7 +9,7 @@ from pcfg import PCFG, PCFGDataset
 from lm import train_model
 
 # constant over all training runs
-DEBUG = True
+DEBUG = False
 N_HEAD = 4 if not DEBUG else 2 # ignored by LSTM
 MAX_LENGTH = 128
 MAX_EPOCHS = 20 if not DEBUG else 1
@@ -31,15 +31,15 @@ N_LAYER_LSTM = 6 if not DEBUG else 3
 N_LAYER_TRF = 4 if not DEBUG else 3
 
 # constant over formalisms
-seeds = [0, 1, 2, 3, 4]
-nums_symbols = [10, 100, 1000, 10_000, 100_000]
-entropies = [4., 8., 16., 32., 64.]
+seeds = [0]
+nums_symbols = [10]
+entropies = [4.]
 model_types = ['lstm', 'trf']
 
 # formalism-specific
-ngram_orders = [1, 2, 3, 4, 5]
-pfsa_nums_states = [4, 8, 16, 32, 64]
-pcfg_nums_nts = [4, 8, 16, 32, 64]
+ngram_orders = [2]
+pfsa_nums_states = [8]
+pcfg_nums_nts = [8]
 
 default_grid = OrderedDict({
     'seed': seeds,
@@ -151,7 +151,7 @@ if __name__ == "__main__":
             log_freq = LOG_FREQ,
             eval_every = EVAL_EVERY,
             trf_or_lstm = 'lstm',
-            is_test_run=DEBUG
+            is_test_run=True
         )
 
         print(f'Training TRF:')
@@ -180,5 +180,5 @@ if __name__ == "__main__":
             log_freq = LOG_FREQ,
             eval_every = EVAL_EVERY,
             trf_or_lstm = 'trf',
-            is_test_run=DEBUG
+            is_test_run=True
         )

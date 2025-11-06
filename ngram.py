@@ -236,10 +236,16 @@ class NGram(Grammar):
             for k in range(K):
                 candidate_probs = {}
                 for i in range(self.order):
-                    candidate_probs[str(i)] = torch.randn(self.probs[str(i)].shape, device=self.device, generator=self.generator)
+                    candidate_probs[str(i)] = torch.randn(
+                        self.probs[str(i)].shape,
+                        device=self.device,
+                        generator=self.generator
+                    )
                 
                 probs_norm = {str(i): candidate_probs[str(i)].softmax(-1) for i in range(self.order)}
-                self.probs = nn.ParameterDict({str(i): nn.Parameter(probs_norm[str(i)]) for i in range(self.order)})
+                self.probs = nn.ParameterDict({
+                    str(i): nn.Parameter(probs_norm[str(i)]) for i in range(self.order)
+                })
                 candidate_loss = criterion(self.entropy(), DH).item()
                 
                 if candidate_loss < best_loss:
