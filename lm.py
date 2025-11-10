@@ -257,6 +257,6 @@ def train_model(
             f.write(f'{train_losses[i]}\t{train_tokens[i]}\n')
 
     with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'w+', encoding='utf-8') as f:
-        f.write('step\trho\tce\n')
+        f.write('step\trho\trho_pval\tce\n')
         for step in rhos.keys():
-            f.write(f'{step}\t{rhos[step]}\t{ces[step]}\n')
+            f.write(f'{step}\t{rhos[step].statistic}\t{rhos[step.pvalue]}\t{ces[step]}\n')

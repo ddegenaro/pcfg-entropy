@@ -45,6 +45,9 @@ class NGram(Grammar):
         )
         self.file_name_convention = f'ngram_seed_{self.seed}_symbols_{self.num_symbols}_order_{self.order}'
 
+        self.num_contexts = self.num_symbols ** (self.order - 1)
+        self.zero = torch.tensor(0., device=self.device)
+
         self.validate()
 
     def __repr__(self):
@@ -124,7 +127,7 @@ class NGram(Grammar):
         # processes self.order, ..., to the end
         for j in range(self.order, len(tokens)):
             idx = self._context_to_idx(tokens[j - self.order + 1:j])
-            log_p += self.probs[str(self.order - 1)][idx, tokens[i]].log()
+            log_p += self.probs[str(self.order - 1)][idx, tokens[j]].log()
         
         return torch.exp(log_p)
 
@@ -167,38 +170,73 @@ class NGram(Grammar):
         return Sequence(self.untokenize(seq, False))
 
     def entropy(self) -> torch.Tensor: # GENERATED WITH CLAUDE
-        """
-        Compute entropy over sequences by finding the stationary distribution
-        of the n-gram model viewed as a Markov chain.
-        
-        For order n, contexts of length (n-1) are states. We compute the stationary
-        distribution π over these states, then compute:
-        H = -Σ_context π(context) * Σ_symbol P(symbol|context) * log P(symbol|context)
-        """
-        
-        if self.order == 1:
-            # For unigrams, entropy is just over the symbol distribution
-            probs = self.probs['0']
-            return -(probs * torch.log(probs + 1e-10)).sum()
-        
-        # For order >= 2: compute stationary distribution over (order-1)-length contexts
+        T = self._build_transition_matrix()
         num_contexts = self.num_symbols ** (self.order - 1)
+        pi = self._compute_stationary_distribution(T, num_contexts)
+        return self.expected_length(T, pi) * self.entropy_rate(T, pi)
+    
+    def entropy_rate(
+        self,
+        T: torch.Tensor = None,
+        pi: torch.Tensor = None
+    ) -> torch.Tensor:
+
+        if self.order == 1:
+            probs = self.probs['0']
+            p_symbols = probs[:-1]
+            
+            # Entropy rate per symbol (given we don't stop)
+            p_symbols_normalized = p_symbols / (p_symbols.sum() + 1e-10)
+            return -(p_symbols_normalized * torch.log(p_symbols_normalized + 1e-10)).sum()
         
         # Build transition matrix: T[i, j] = P(j | context_i)
         # where j represents "next symbol" and also encodes the new context
-        T = self._build_transition_matrix()
+        if T is None:
+            T = self._build_transition_matrix()
         
         # Find stationary distribution via power iteration
-        pi = self._compute_stationary_distribution(T, num_contexts)
+        if pi is None:
+            pi = self._compute_stationary_distribution(T)
         
         # Compute entropy: H = -Σ_context π(context) * Σ_symbol P(symbol|context) * log P(symbol|context)
         cond_probs = self.probs[str(self.order - 1)]  # shape: (num_contexts, num_symbols + 1)
         
         # Conditional entropy for each context
         cond_entropy = -(cond_probs * torch.log(cond_probs + 1e-10)).sum(1)  # shape: (num_contexts,)
-        
-        # Weight by stationary probability of each context
+
         return (pi * cond_entropy).sum()
+    
+    def expected_length(
+        self,
+        T: torch.Tensor = None,
+        pi: torch.Tensor = None
+    ) -> torch.Tensor:
+
+        if self.order == 1:
+            p_stop = self.probs['0'][-1]
+            
+            # Expected length before stopping
+            expected_length = (1 - p_stop) / (p_stop + 1e-10)
+            
+            return expected_length
+        
+        cond_probs = self.probs[str(self.order - 1)]  # shape: (num_contexts, num_symbols + 1)
+        
+        # Build transition matrix: T[i, j] = P(j | context_i)
+        # where j represents "next symbol" and also encodes the new context
+        if T is None:
+            T = self._build_transition_matrix()
+
+        # Find stationary distribution via power iteration
+        if pi is None:
+            pi = self._compute_stationary_distribution(T)
+
+        # Expected length: 1 / (probability of stopping in any context)
+        p_stop_per_context = cond_probs[:, -1]  # Last column is stop symbol
+        expected_p_stop = (pi * p_stop_per_context).sum()
+        expected_length = 1.0 / (expected_p_stop + 1e-10)
+
+        return expected_length
     
     def optimize(
         self,
@@ -312,50 +350,36 @@ class NGram(Grammar):
 
         return True
 
-    def _build_transition_matrix(self) -> torch.Tensor: # GENERATED WITH CLAUDE
+    def _build_transition_matrix(self) -> torch.Tensor:
         """
         Build a transition matrix where entry [i, j] represents the probability
         of transitioning from context i to context j.
-        
-        A transition from context i to context j occurs when we:
-        - Start in context i (representing symbols s_1, ..., s_{n-1})
-        - Generate symbol s_n
-        - New context j represents (s_2, ..., s_n)
         """
-        num_contexts = self.num_symbols ** (self.order - 1)
-        num_symbols = self.num_symbols + 1  # include stop symbol
-        
-        # T[i, j] = probability of going from context i to context j
-        T = torch.zeros(num_contexts, num_contexts, device=self.device)
         
         cond_probs = self.probs[str(self.order - 1)]  # shape: (num_contexts, num_symbols + 1)
         
-        for context_idx in range(num_contexts):
-            # For each symbol we could generate
-            for symbol_idx in range(num_symbols):
-                prob = cond_probs[context_idx, symbol_idx]
-                
-                if symbol_idx == self.num_symbols:
-                    # Stop symbol: stay in dummy context (context 0) or distribute over initial states
-                    # We treat this as transitioning to a special absorbing state
-                    # For entropy purposes, we can ignore paths that terminate
-                    continue
-                else:
-                    # New context: shift context left and add new symbol
-                    # context_idx encodes (s_1, ..., s_{n-1})
-                    # new context encodes (s_2, ..., s_n) where s_n = symbol_idx
-                    new_context_idx = self._context_to_idx(
-                        self._idx_to_context(context_idx)[1:] + [symbol_idx]
-                    )
-                    T[context_idx, new_context_idx] += prob
+        # For each context i and symbol s, compute new_context = (i % (V^(n-2))) * V + s
+        old_indices = torch.arange(self.num_contexts, device=self.device).unsqueeze(1)  # (num_contexts, 1)
+        symbol_indices = torch.arange(self.num_symbols, device=self.device).unsqueeze(0)  # (1, num_symbols)
+        
+        # Broadcast to (num_contexts, num_symbols)
+        new_indices = (old_indices % (self.num_contexts // self.num_symbols)) * self.num_symbols + symbol_indices
+        
+        # Use scatter_add to build transition matrix
+        # T[old_idx, new_idx] += cond_probs[old_idx, symbol_idx]
+        T = torch.zeros(self.num_contexts, self.num_contexts, device=self.device)
+        T.scatter_add_(
+            dim=1,
+            index=new_indices,
+            src=cond_probs[:, :self.num_symbols]  # Exclude stop symbol
+        )
         
         return T
 
     def _compute_stationary_distribution(
         self,
         T: torch.Tensor,
-        num_contexts: int,
-        max_iters: int = 1000,
+        max_iters: int = 10000,
         tol: float = 1e-6
     ) -> torch.Tensor: # GENERATED WITH CLAUDE
         """
@@ -363,7 +387,7 @@ class NGram(Grammar):
         
         Initialize π uniformly and iterate until convergence.
         """
-        pi = torch.ones(num_contexts, device=self.device) / num_contexts
+        pi = torch.ones(self.num_contexts, device=self.device) / self.num_contexts
         
         for _ in range(max_iters):
             pi_new = pi @ T
@@ -371,7 +395,9 @@ class NGram(Grammar):
             # Renormalize (may not sum to 1 due to stop symbols)
             pi_new = pi_new / (pi_new.sum() + 1e-10)
             
-            if torch.allclose(pi, pi_new, atol=tol):
+            if torch.isclose(
+                torch.mean((pi_new - pi) ** 2), self.zero, atol=tol
+            ):
                 break
             
             pi = pi_new
