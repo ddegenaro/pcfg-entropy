@@ -9,7 +9,7 @@ from pcfg import PCFG, PCFGDataset
 from lm import train_model
 
 # constant over all training runs
-DEBUG = True
+DEBUG = False
 N_HEAD = 4 if not DEBUG else 2 # ignored by LSTM
 MAX_LENGTH = 128
 MAX_EPOCHS = 20 if not DEBUG else 1

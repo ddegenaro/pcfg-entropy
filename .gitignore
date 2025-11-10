@@ -2,3 +2,5 @@ __pycache__/
 test.ipynb
 grammar_matrices/
 tempCodeRunnerFile.py
+venv/
+*.o*
