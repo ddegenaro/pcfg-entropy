@@ -234,6 +234,8 @@ def train_model(
     with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'w+', encoding='utf-8') as f:
         f.write('step\trho\trho_pval\tce\n')
 
+        rho_last = 0
+
     for epoch in range(max_epochs):
 
         prev_train_losses = len(train_losses)
@@ -261,6 +263,29 @@ def train_model(
             p_true=p_true
         )
 
+        # new evaluations from this epoch
+        new_keys = sorted([key for key in rhos.keys() if key > prev_last_step])
+
+        # compare last rho and newest rho
+        if len(new_keys) > 1: # more than one new eval, use most recent two
+            rho_curr = rhos[new_keys[-1]]
+            rho_last = rhos[new_keys[-2]]
+        elif len(new_keys) == 1: # one new eval, compare stored last eval
+            rho_curr = rhos[new_keys[0]]
+            rho_last = rho_last
+        else: # no new evals, do nothing
+            rho_curr = None
+
+        if epoch > 3:
+            if rho_curr is not None: # some new eval
+                if rho_curr < rho_last:
+                    print('Performance decreased between evals. Stopping early.')
+                    break
+                elif abs(rho_curr - rho_last) < .005:
+                    print('Rho% not changing. Stopping early.')
+        
+        rho_last = rho_curr # new "previous" is the current one
+
         train_losses_this_epoch = train_losses[prev_train_losses:]
         train_tokens_this_epoch = train_tokens[prev_train_losses:]
 
@@ -268,12 +293,6 @@ def train_model(
             for i in range(len(train_losses_this_epoch)):
                 f.write(f'{train_losses_this_epoch[i]}\t{train_tokens_this_epoch[i]}\n')
 
-        new_keys = [key for key in rhos.keys() if key > prev_last_step]
-
         with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'a', encoding='utf-8') as f:
-            for step in sorted(new_keys):
-                f.write(f'{step}\t{rhos[step].statistic}\t{rhos[step.pvalue]}\t{ces[step]}\n')
-        
-            
-
-    
+            for step in new_keys:
+                f.write(f'{step}\t{rhos[step].statistic}\t{rhos[step].pvalue}\t{ces[step]}\n')

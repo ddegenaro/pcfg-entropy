@@ -20,4 +20,4 @@ python3 -m uv pip install -r requirements.txt
 python3 --version
 
 # 0 = ngrams, 1 = pfsas, 2 = pcfgs
-python3 experiments.py -j 1
+python3 experiments.py -j 2
