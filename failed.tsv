@@ -1,0 +1,6 @@
+PFSA(seed=0, num_symbols=10, num_states=4)	4.0
+PCFG(seed=0, num_symbols=10, num_non_terminals=4)	4.0
+PCFG(seed=0, num_symbols=10, num_non_terminals=8)	4.0
+PCFG(seed=0, num_symbols=10, num_non_terminals=16)	4.0
+PCFG(seed=0, num_symbols=10, num_non_terminals=32)	4.0
+PCFG(seed=0, num_symbols=10, num_non_terminals=64)	4.0

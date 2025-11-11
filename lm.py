@@ -89,12 +89,13 @@ def train_epoch(
 
         batch['labels'] = batch['input_ids']
         
+        optimizer.zero_grad()
         outputs = model(**batch)
         outputs.loss.backward()
         optimizer.step()
 
         loss = outputs.loss.item()
-        tokens = batch['attention_mask'].sum()
+        tokens = batch['attention_mask'].sum().item()
         running_total_train_loss += loss
         running_total_train_tokens += tokens
         train_losses.append(loss)
@@ -227,7 +228,16 @@ def train_model(
     print(f'Computing p_true...')
     p_true = [grammar.p_seq(seq).item() for seq in tqdm(val_data, total=len(val_data))]
 
+    with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'w+', encoding='utf-8') as f:
+        f.write('avg_loss\ttokens\n')
+
+    with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'w+', encoding='utf-8') as f:
+        f.write('step\trho\trho_pval\tce\n')
+
     for epoch in range(max_epochs):
+
+        prev_train_losses = len(train_losses)
+        prev_last_step = max(list(rhos.keys()) + [0])
 
         torch.manual_seed(
             torch.randint(
@@ -251,12 +261,19 @@ def train_model(
             p_true=p_true
         )
 
-    with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'w+', encoding='utf-8') as f:
-        f.write('avg_loss\ttokens\n')
-        for i in range(len(train_losses)):
-            f.write(f'{train_losses[i]}\t{train_tokens[i]}\n')
+        train_losses_this_epoch = train_losses[prev_train_losses:]
+        train_tokens_this_epoch = train_tokens[prev_train_losses:]
 
-    with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'w+', encoding='utf-8') as f:
-        f.write('step\trho\trho_pval\tce\n')
-        for step in rhos.keys():
-            f.write(f'{step}\t{rhos[step].statistic}\t{rhos[step.pvalue]}\t{ces[step]}\n')
+        with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'a', encoding='utf-8') as f:
+            for i in range(len(train_losses_this_epoch)):
+                f.write(f'{train_losses_this_epoch[i]}\t{train_tokens_this_epoch[i]}\n')
+
+        new_keys = [key for key in rhos.keys() if key > prev_last_step]
+
+        with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'a', encoding='utf-8') as f:
+            for step in sorted(new_keys):
+                f.write(f'{step}\t{rhos[step].statistic}\t{rhos[step.pvalue]}\t{ces[step]}\n')
+        
+            
+
+    

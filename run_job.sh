@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name="entropy"
 #SBATCH --nodes=1
-#SBATCH --partition=spot
-#SBATCH --output="%x.o%j"
+#SBATCH --partition=base
+#SBATCH --output="slurms/%x.o%j"
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
-#SBATCH --mem=3G
+#SBATCH --mem=15G
 #SBATCH --time=60:00:00
 
 cd /home/drd92/pcfg-entropy

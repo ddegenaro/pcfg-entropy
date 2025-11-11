@@ -3,4 +3,4 @@ test.ipynb
 grammar_matrices/
 tempCodeRunnerFile.py
 venv/
-*.o*
+slurms/
