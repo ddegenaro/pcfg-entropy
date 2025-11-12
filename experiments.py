@@ -5,12 +5,14 @@ from itertools import product
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 import threading
+import logging
 
 from ngram import NGram, NGramDataset
 from pfsa import PFSA, PFSADataset
 from pcfg import PCFG, PCFGDataset
 from lm import train_model
 
+logger = logging.getLogger(__name__)
 _experiment_lock = threading.Lock()
 
 # constant over all training runs
@@ -78,11 +80,7 @@ def main(grammar_args, j):
         this_experiment_dir = os.path.join('experiments', this_experiment)
         os.makedirs(this_experiment_dir)
 
-    log_file = open(
-        os.path.join(this_experiment_dir, 'out.log'), 'w+', buffering=1
-    )
-    sys.stdout = log_file
-    sys.stderr = log_file
+    # TODO: set up parallel logging for different experiments
 
     seed, num_symbols, entropy, formalism_arg = grammar_args
 
@@ -105,9 +103,9 @@ def main(grammar_args, j):
             num_non_terminals=formalism_arg
         )
 
-    print(f'Optimizing {grammar} to have entropy {entropy}...')
+    logger.info(f'Optimizing {grammar} to have entropy {entropy}...')
     if not grammar.optimize(H_t=entropy, do_logging=True):
-        print(f'Optimization failed. Consider retrying.')
+        logger.info(f'Optimization failed. Consider retrying.')
         with _experiment_lock:
             if not os.path.exists('failed.tsv'):
                 open('failed.tsv', 'w+', encoding='utf-8')
@@ -119,27 +117,27 @@ def main(grammar_args, j):
                         g.write(line + '\n')
             return
     
-    print(f'True entropy: {entropy}.')
+    logger.info(f'True entropy: {entropy}.')
     ge = grammar.entropy().item()
-    print(f'Grammar entropy: {ge}')
-    print(f'Diff: {abs(ge - entropy)}')
+    logger.info(f'Grammar entropy: {ge}')
+    logger.info(f'Diff: {abs(ge - entropy)}')
     
-    print(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...')
+    logger.info(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...')
     train_data = dataset_type(grammar, num_seqs=NUM_SEQS_TRAIN, max_length=MAX_LENGTH)
-    print(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...')
+    logger.info(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...')
     val_data = dataset_type(grammar, num_seqs=NUM_SEQS_VAL, max_length=MAX_LENGTH)
 
-    print(f'Training LSTM:')
-    print(f'\tn_embd: {N_EMBD_LSTM}')
-    print(f'\tn_hidden: {N_HIDDEN_LSTM}')
-    print(f'\tn_layer: {N_LAYER_LSTM}')
-    print(f'\tn_head: {N_HEAD}')
-    print(f'\tn_positions: {MAX_LENGTH}')
-    print(f'\tlr: {LR}')
-    print(f'\twd: {WD}')
-    print(f'\tmax_epochs: {MAX_EPOCHS}')
-    print(f'\tlog_freq: {LOG_FREQ}')
-    print(f'\teval_every: {EVAL_EVERY}')
+    logger.info(f'Training LSTM:')
+    logger.info(f'\tn_embd: {N_EMBD_LSTM}')
+    logger.info(f'\tn_hidden: {N_HIDDEN_LSTM}')
+    logger.info(f'\tn_layer: {N_LAYER_LSTM}')
+    logger.info(f'\tn_head: {N_HEAD}')
+    logger.info(f'\tn_positions: {MAX_LENGTH}')
+    logger.info(f'\tlr: {LR}')
+    logger.info(f'\twd: {WD}')
+    logger.info(f'\tmax_epochs: {MAX_EPOCHS}')
+    logger.info(f'\tlog_freq: {LOG_FREQ}')
+    logger.info(f'\teval_every: {EVAL_EVERY}')
     train_model(
         grammar,
         train_data,
@@ -158,17 +156,17 @@ def main(grammar_args, j):
         this_experiment_dir = this_experiment_dir
     )
 
-    print(f'Training TRF:')
-    print(f'\tn_embd: {N_EMBD_TRF}')
-    print(f'\tn_hidden: {N_HIDDEN_TRF}')
-    print(f'\tn_layer: {N_LAYER_TRF}')
-    print(f'\tn_head: {N_HEAD}')
-    print(f'\tn_positions: {MAX_LENGTH}')
-    print(f'\tlr: {LR}')
-    print(f'\twd: {WD}')
-    print(f'\tmax_epochs: {MAX_EPOCHS}')
-    print(f'\tlog_freq: {LOG_FREQ}')
-    print(f'\teval_every: {EVAL_EVERY}')
+    logger.info(f'Training TRF:')
+    logger.info(f'\tn_embd: {N_EMBD_TRF}')
+    logger.info(f'\tn_hidden: {N_HIDDEN_TRF}')
+    logger.info(f'\tn_layer: {N_LAYER_TRF}')
+    logger.info(f'\tn_head: {N_HEAD}')
+    logger.info(f'\tn_positions: {MAX_LENGTH}')
+    logger.info(f'\tlr: {LR}')
+    logger.info(f'\twd: {WD}')
+    logger.info(f'\tmax_epochs: {MAX_EPOCHS}')
+    logger.info(f'\tlog_freq: {LOG_FREQ}')
+    logger.info(f'\teval_every: {EVAL_EVERY}')
     train_model(
         grammar,
         train_data,
@@ -217,7 +215,8 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'j must be 0-2 but was {j}')
 
-    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+    # can go more than 1 if we get that nice GPU ready
+    with ThreadPoolExecutor(max_workers=1) as executor:
         futures = [
             executor.submit(main, grammar_args, j)
             for grammar_args in product(*grid.values())

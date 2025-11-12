@@ -1,7 +1,7 @@
 import os
 import json
 from typing import Union
-from threading import Lock
+import logging
 
 from tqdm import tqdm
 import torch
@@ -12,6 +12,7 @@ from lstm import LSTM
 from utils import Grammar, SequenceDataset, SequenceDataLoader
 from metrics import both_metrics
 
+logger = logging.getLogger(__name__)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def create_model_and_optimizer(
@@ -55,12 +56,12 @@ def create_model_and_optimizer(
     )
 
     param_count = sum(p.numel() for p in model.parameters())
-    print(f'Training {model_type} on {DEVICE} with {param_count:,} trainable parameters.', flush=True)
+    logger.info(f'Training {model_type} on {DEVICE} with {param_count:,} trainable parameters.', flush=True)
 
     return (model, optimizer, param_count)
 
 def do_log(msg: str):
-    print(msg, flush=True)
+    logger.info(msg, flush=True)
 
 def train_epoch(
     train_data_loader: SequenceDataLoader,
@@ -174,7 +175,7 @@ def train_model(
         model_type=trf_or_lstm
     )
 
-    print(f'Building train dataloader...')
+    logger.info(f'Building train dataloader...')
     train_data_loader = SequenceDataLoader(
         ds=train_data,
         batch_size=batch_size,
@@ -182,7 +183,7 @@ def train_model(
         max_length=n_positions
     )
 
-    print(f'Building val dataloader...')
+    logger.info(f'Building val dataloader...')
     val_data_loader = SequenceDataLoader(
         ds=val_data,
         batch_size=batch_size,
@@ -214,11 +215,11 @@ def train_model(
     }
 
     hparams_loc = os.path.join(this_experiment_dir, 'hparams.json')
-    print(f'Writing hparams to {hparams_loc}')
+    logger.info(f'Writing hparams to {hparams_loc}')
     with open(hparams_loc, 'w+', encoding='utf-8') as f:
         json.dump(hparams, f, indent=4)
 
-    print(f'Computing p_true...')
+    logger.info(f'Computing p_true...')
     p_true = [grammar.p_seq(seq).item() for seq in tqdm(val_data, total=len(val_data))]
 
     with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'w+', encoding='utf-8') as f:
@@ -271,10 +272,10 @@ def train_model(
 
         if rho_curr is not None: # some new eval
             if rho_curr < rho_last:
-                print('Performance decreased between evals. Stopping early.')
+                logger.info('Performance decreased between evals. Stopping early.')
                 break
             elif abs(rho_curr - rho_last) < .005:
-                print('Rho% not changing. Stopping early.')
+                logger.info('Rho% not changing. Stopping early.')
         
         rho_last = rho_curr # new "previous" is the current one
 
