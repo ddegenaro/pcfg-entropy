@@ -118,7 +118,7 @@ class Tree:
         )
         plt.show()
 
-    def _preorder(self, node: Node | None) -> str:
+    def _preorder(self, node: Union[Node, None]) -> str:
         if node is None:
             return ''
         
@@ -470,7 +470,8 @@ class SequenceDataset(torch.utils.data.Dataset):
             'token_count': tokens,
             'mean_length': tokens / len(self),
             'median_length': median,
-            'mode_length': mode
+            'mode_length': mode,
+            'num_seqs': len(self.seqs)
         }
 
     def m_local_entropy(

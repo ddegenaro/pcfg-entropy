@@ -1,6 +1,7 @@
 import os
 import json
 from typing import Union
+from threading import Lock
 
 from tqdm import tqdm
 import torch
@@ -10,6 +11,8 @@ from transformers import GPT2Config, GPT2LMHeadModel
 from lstm import LSTM
 from utils import Grammar, SequenceDataset, SequenceDataLoader
 from metrics import both_metrics
+
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def create_model_and_optimizer(
     grammar: Grammar,
@@ -33,7 +36,7 @@ def create_model_and_optimizer(
                 n_head=n_head,
                 n_positions=n_positions
             )
-        )
+        ).to(device=DEVICE, dtype=torch.bfloat16)
     elif model_type == 'lstm':
         model = LSTM(
             vocab_size=grammar.num_symbols + 3, # EOS, PAD
@@ -41,7 +44,7 @@ def create_model_and_optimizer(
             n_embd=n_embd,
             n_hidden=n_hidden,
             n_layer=n_layer
-        )
+        ).to(device=DEVICE, dtype=torch.bfloat16)
     else:
         raise ValueError('model_type must be either "trf" or "lstm"')
 
@@ -52,7 +55,7 @@ def create_model_and_optimizer(
     )
 
     param_count = sum(p.numel() for p in model.parameters())
-    print(f'Training {model_type} with {param_count:,} trainable parameters.', flush=True)
+    print(f'Training {model_type} on {DEVICE} with {param_count:,} trainable parameters.', flush=True)
 
     return (model, optimizer, param_count)
 
@@ -151,19 +154,8 @@ def train_model(
     eval_every: int = 1000,
     trf_or_lstm: str = 'trf',
     batch_size: int = 32,
-    is_test_run: bool = False
+    this_experiment_dir: str = '.'
 ):
-    
-    if not os.path.exists('experiments'):
-        os.makedirs('experiments')
-        this_experiment = '1'
-    else:
-        experiments = [int(x.replace('_test', '')) for x in os.listdir('experiments')]
-        this_experiment = str(max(experiments) + 1)
-    if is_test_run:
-        this_experiment += '_test'
-    this_experiment_dir = os.path.join('experiments', this_experiment)
-    os.makedirs(this_experiment_dir)
     
     train_losses = []
     train_tokens = []
@@ -203,6 +195,7 @@ def train_model(
         'grammar_seed': grammar.seed,
         'grammar_num_symbols': grammar.num_symbols,
         'grammar_str': grammar.file_name_convention,
+        'grammar_entropy': grammar.entropy().item(),
         'train_data_stats': train_data.basic_stats(),
         'train_data_ee': train_data.excess_entropy(),
         'val_data_stats': val_data.basic_stats(),
@@ -276,13 +269,12 @@ def train_model(
         else: # no new evals, do nothing
             rho_curr = None
 
-        if epoch > 3:
-            if rho_curr is not None: # some new eval
-                if rho_curr < rho_last:
-                    print('Performance decreased between evals. Stopping early.')
-                    break
-                elif abs(rho_curr - rho_last) < .005:
-                    print('Rho% not changing. Stopping early.')
+        if rho_curr is not None: # some new eval
+            if rho_curr < rho_last:
+                print('Performance decreased between evals. Stopping early.')
+                break
+            elif abs(rho_curr - rho_last) < .005:
+                print('Rho% not changing. Stopping early.')
         
         rho_last = rho_curr # new "previous" is the current one
 

@@ -7,6 +7,8 @@
 #SBATCH --ntasks=1
 #SBATCH --mem=15G
 #SBATCH --time=60:00:00
+#SBATCH --mail-type=FAIL,END
+#SBATCH --mail-user=drd92@georgetown.edu
 
 cd /home/drd92/pcfg-entropy
 
@@ -20,4 +22,4 @@ python3 -m uv pip install -r requirements.txt
 python3 --version
 
 # 0 = ngrams, 1 = pfsas, 2 = pcfgs
-python3 experiments.py -j 2
+python3 experiments.py -j 1
