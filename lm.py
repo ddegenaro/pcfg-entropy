@@ -268,10 +268,10 @@ def train_model(
 
         # compare last rho and newest rho
         if len(new_keys) > 1: # more than one new eval, use most recent two
-            rho_curr = rhos[new_keys[-1]]
-            rho_last = rhos[new_keys[-2]]
+            rho_curr = rhos[new_keys[-1]].statistic
+            rho_last = rhos[new_keys[-2]].statistic
         elif len(new_keys) == 1: # one new eval, compare stored last eval
-            rho_curr = rhos[new_keys[0]]
+            rho_curr = rhos[new_keys[0]].statistic
             rho_last = rho_last
         else: # no new evals, do nothing
             rho_curr = None
