@@ -245,7 +245,10 @@ def train_model(
         json.dump(hparams, f, indent=4)
 
     logger.info(f'Computing p_true...')
-    p_true = [grammar.p_seq(seq).item() for seq in tqdm(val_data, total=len(val_data))]
+    if verbose:
+        p_true = [grammar.p_seq(seq).item() for seq in tqdm(val_data, total=len(val_data))]
+    else:
+        p_true = [grammar.p_seq(seq).item() for seq in val_data]
 
     with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'w+', encoding='utf-8') as f:
         f.write('avg_loss\ttokens\n')
@@ -255,6 +258,9 @@ def train_model(
         
     all_train_losses = []
     all_train_tokens = []
+    
+    best_loss = torch.inf
+    strikes = 0
 
     for epoch in range(max_epochs):
 
@@ -280,3 +286,15 @@ def train_model(
             all_train_losses=all_train_losses,
             all_train_tokens=all_train_tokens
         )
+
+        curr_loss = sum(
+            [loss * tokens for loss, tokens in zip(all_train_losses, all_train_tokens)]
+        ) / sum(all_train_tokens)
+        
+        if curr_loss <= best_loss:
+            best_loss = curr_loss
+        else: # curr_loss > best_loss
+            strikes += 1
+            
+        if strikes == 5:
+            break

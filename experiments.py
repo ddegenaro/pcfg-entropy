@@ -116,9 +116,9 @@ def main(grammar_args, j):
     logger.info(f'Diff: {abs(ge - entropy)}')
     
     logger.info(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...')
-    train_data = dataset_type(grammar, num_seqs=NUM_SEQS_TRAIN, max_length=MAX_LENGTH)
+    train_data = dataset_type(grammar, num_seqs=NUM_SEQS_TRAIN, max_length=MAX_LENGTH, do_logging=False)
     logger.info(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...')
-    val_data = dataset_type(grammar, num_seqs=NUM_SEQS_VAL, max_length=MAX_LENGTH)
+    val_data = dataset_type(grammar, num_seqs=NUM_SEQS_VAL, max_length=MAX_LENGTH, do_logging=False)
 
     logger.info(f'Training LSTM:')
     logger.info(f'\tn_embd: {N_EMBD_LSTM}')
