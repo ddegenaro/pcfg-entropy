@@ -7,7 +7,7 @@ from scipy.stats import spearmanr
 from transformers import GPT2LMHeadModel
 
 from lstm import LSTM
-from utils import SequenceDataset, SequenceDataLoader
+from utils import SequenceDataLoader
 
 def get_sequence_probabilities(logits, input_ids, attention_mask): # GENERATED WITH CLAUDE
     """
@@ -48,7 +48,9 @@ def get_sequence_probabilities(logits, input_ids, attention_mask): # GENERATED W
 def both_metrics(
     val_data_loader: SequenceDataLoader,
     model: Union[LSTM, GPT2LMHeadModel],
-    p_true: list[float]
+    p_true: list[float],
+    device: str,
+    verbose: bool
 ):
 
     """
@@ -59,12 +61,20 @@ def both_metrics(
     
     total_loss = 0.
     total_tokens = 0
+
+    if verbose:
+        iterable = tqdm(val_data_loader, total=len(val_data_loader))
+    else:
+        iterable = val_data_loader
     
     model.eval()
     with torch.no_grad():
-        for batch in tqdm(val_data_loader, total=len(val_data_loader)):
+        for batch in iterable:
 
             batch['labels'] = batch['input_ids']
+
+            for key in batch:
+                batch[key] = batch[key].to(device)
 
             outputs = model(**batch)
             logits = outputs.logits

@@ -1,7 +1,7 @@
 import os
 import json
 from typing import Union
-import logging
+from logging import Logger
 
 from tqdm import tqdm
 import torch
@@ -12,7 +12,6 @@ from lstm import LSTM
 from utils import Grammar, SequenceDataset, SequenceDataLoader
 from metrics import both_metrics
 
-logger = logging.getLogger(__name__)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def create_model_and_optimizer(
@@ -24,7 +23,8 @@ def create_model_and_optimizer(
     n_positions: int,
     lr: int,
     wd: int,
-    model_type: str
+    model_type: str,
+    logger: Logger
 ) -> Union[tuple[LSTM, AdamW, int], tuple[GPT2LMHeadModel, AdamW, int]]:
     
     if model_type == 'trf':
@@ -56,26 +56,22 @@ def create_model_and_optimizer(
     )
 
     param_count = sum(p.numel() for p in model.parameters())
-    logger.info(f'Training {model_type} on {DEVICE} with {param_count:,} trainable parameters.', flush=True)
+    logger.info(f'Training {model_type} on {DEVICE} with {param_count:,} trainable parameters.')
 
     return (model, optimizer, param_count)
-
-def do_log(msg: str):
-    logger.info(msg, flush=True)
 
 def train_epoch(
     train_data_loader: SequenceDataLoader,
     model: torch.nn.Module,
     optimizer: AdamW,
     epoch: int,
-    train_losses: list[float],
-    train_tokens: list[int],
     log_freq: int,
     eval_every: int,
     val_data_loader: SequenceDataLoader,
-    rhos: dict[int, float],
-    ces: dict[int, float],
-    p_true: list[float]
+    p_true: list[float],
+    this_experiment_dir: str,
+    logger: Logger,
+    verbose: bool
 ):
     
     model.train()
@@ -83,15 +79,26 @@ def train_epoch(
     running_total_train_loss = sum(l * t for l, t in zip(train_losses, train_tokens))
     running_total_train_tokens = sum(train_tokens)
 
-    do_log('-' * 100)
-    do_log(f'Begin training epoch {epoch}.')
-    do_log('-' * 100)
+    logger.info('-' * 100)
+    logger.info(f'Begin training epoch {epoch}.')
+    logger.info('-' * 100)
 
     step = len(train_data_loader) * epoch
 
-    for batch in tqdm(train_data_loader, total=len(train_data_loader)):
+    if verbose:
+        iterable = tqdm(train_data_loader, total=len(train_data_loader))
+    else:
+        iterable = train_data_loader
+
+    train_losses = []
+    train_tokens = []
+
+    for batch in iterable:
 
         batch['labels'] = batch['input_ids']
+
+        for key in batch:
+            batch[key] = batch[key].to(DEVICE)
         
         optimizer.zero_grad()
         outputs = model(**batch)
@@ -109,35 +116,50 @@ def train_epoch(
 
         if step % log_freq == 0:
             msg = f'Epoch: {epoch:03d} - Step: {step:05d} - Loss: {loss:.4f} - Avg/tok: {avg_loss:.4f}'
-            do_log(msg)
+            logger.info(msg)
 
         if step % eval_every == 0:
-            rho, ce = val_epoch(
+            val_epoch(
                 val_data_loader=val_data_loader,
                 model=model,
                 step=step,
-                p_true=p_true
+                p_true=p_true,
+                this_experiment_dir=this_experiment_dir,
+                logger=logger,
+                verbose=verbose
             )
-    
-            rhos[step] = rho
-            ces[step] = ce
+            
+            with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'a', encoding='utf-8') as f:
+                for i in range(len(train_losses)):
+                    f.write(f'{train_losses[i]}\t{train_tokens[i]}\n')
+                    
+            train_losses = []
+            train_tokens = []
 
 def val_epoch(
     val_data_loader: SequenceDataLoader,
     model: torch.nn.Module,
     step: int,
-    p_true: list[float]
+    p_true: list[float],
+    this_experiment_dir: str,
+    logger: Logger,
+    verbose: bool
 ):
 
-    do_log('-' * 100)
-    do_log(f'Begin eval after {step} steps.')
-    do_log('-' * 100)
+    logger.info('-' * 100)
+    logger.info(f'Begin eval after {step} steps.')
+    logger.info('-' * 100)
 
-    return both_metrics(
+    rho, ce = both_metrics(
         val_data_loader=val_data_loader,
         model=model,
-        p_true=p_true
+        p_true=p_true,
+        device=DEVICE,
+        verbose=verbose
     )
+    
+    with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'a', encoding='utf-8') as f:
+        f.write(f'{step}\t{rho.statistic}\t{rho.pvalue}\t{ce}\n')
 
 def train_model(
     grammar: Grammar,
@@ -155,13 +177,10 @@ def train_model(
     eval_every: int = 1000,
     trf_or_lstm: str = 'trf',
     batch_size: int = 32,
-    this_experiment_dir: str = '.'
+    this_experiment_dir: str = '.',
+    logger: Logger = None,
+    verbose: bool = False
 ):
-    
-    train_losses = []
-    train_tokens = []
-    rhos = {}
-    ces = {}
     
     model, optimizer, param_count = create_model_and_optimizer(
         grammar,
@@ -172,7 +191,8 @@ def train_model(
         n_positions=n_positions,
         lr=lr,
         wd=wd,
-        model_type=trf_or_lstm
+        model_type=trf_or_lstm,
+        logger=logger
     )
 
     logger.info(f'Building train dataloader...')
@@ -228,12 +248,7 @@ def train_model(
     with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'w+', encoding='utf-8') as f:
         f.write('step\trho\trho_pval\tce\n')
 
-        rho_last = 0
-
     for epoch in range(max_epochs):
-
-        prev_train_losses = len(train_losses)
-        prev_last_step = max(list(rhos.keys()) + [0])
 
         torch.manual_seed(
             torch.randint(
@@ -247,45 +262,11 @@ def train_model(
             model=model,
             optimizer=optimizer,
             epoch=epoch,
-            train_losses=train_losses,
-            train_tokens=train_tokens,
             log_freq=log_freq,
             eval_every=eval_every, # evaluate every X steps
             val_data_loader=val_data_loader,
-            rhos=rhos,
-            ces=ces,
-            p_true=p_true
+            p_true=p_true,
+            this_experiment_dir=this_experiment_dir,
+            logger=logger,
+            verbose=verbose
         )
-
-        # new evaluations from this epoch
-        new_keys = sorted([key for key in rhos.keys() if key > prev_last_step])
-
-        # compare last rho and newest rho
-        if len(new_keys) > 1: # more than one new eval, use most recent two
-            rho_curr = rhos[new_keys[-1]].statistic
-            rho_last = rhos[new_keys[-2]].statistic
-        elif len(new_keys) == 1: # one new eval, compare stored last eval
-            rho_curr = rhos[new_keys[0]].statistic
-            rho_last = rho_last
-        else: # no new evals, do nothing
-            rho_curr = None
-
-        if rho_curr is not None: # some new eval
-            if rho_curr < rho_last:
-                logger.info('Performance decreased between evals. Stopping early.')
-                break
-            elif abs(rho_curr - rho_last) < .005:
-                logger.info('Rho% not changing. Stopping early.')
-        
-        rho_last = rho_curr # new "previous" is the current one
-
-        train_losses_this_epoch = train_losses[prev_train_losses:]
-        train_tokens_this_epoch = train_tokens[prev_train_losses:]
-
-        with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'a', encoding='utf-8') as f:
-            for i in range(len(train_losses_this_epoch)):
-                f.write(f'{train_losses_this_epoch[i]}\t{train_tokens_this_epoch[i]}\n')
-
-        with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'a', encoding='utf-8') as f:
-            for step in new_keys:
-                f.write(f'{step}\t{rhos[step].statistic}\t{rhos[step].pvalue}\t{ces[step]}\n')

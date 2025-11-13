@@ -1,10 +1,7 @@
 import os
-import sys
 from argparse import ArgumentParser
 from itertools import product
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
-import threading
 import logging
 
 from ngram import NGram, NGramDataset
@@ -12,11 +9,9 @@ from pfsa import PFSA, PFSADataset
 from pcfg import PCFG, PCFGDataset
 from lm import train_model
 
-logger = logging.getLogger(__name__)
-_experiment_lock = threading.Lock()
-
 # constant over all training runs
 DEBUG = False
+VERBOSE = False
 N_HEAD = 4 if not DEBUG else 2 # ignored by LSTM
 MAX_LENGTH = 128
 MAX_EPOCHS = 20 if not DEBUG else 1
@@ -64,23 +59,23 @@ pcfg_grid = default_grid.copy()
 pcfg_grid['num_non_terminals'] = pcfg_nums_nts
 
 def main(grammar_args, j):
-
-    if not os.path.exists('experiments'):
-        os.makedirs('experiments', exist_ok=True)
     
-    with _experiment_lock:
-        # All of this happens atomically - only one thread at a time
-        if not os.path.exists('experiments'):
-            this_experiment = '1'
-        else:
-            experiments = [int(x.replace('_test', '')) for x in os.listdir('experiments')]
-            this_experiment = str(max(experiments) + 1)
-        if DEBUG:
-            this_experiment += '_test'
-        this_experiment_dir = os.path.join('experiments', this_experiment)
-        os.makedirs(this_experiment_dir)
+    if not os.path.exists('experiments'):
+        this_experiment = '1'
+    else:
+        experiments = [int(x.replace('_test', '')) for x in os.listdir('experiments')]
+        this_experiment = str(max(experiments) + 1)
+    if DEBUG:
+        this_experiment += '_test'
+    this_experiment_dir = os.path.join('experiments', this_experiment)
+    os.makedirs(this_experiment_dir)
 
-    # TODO: set up parallel logging for different experiments
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(
+        filename=os.path.join(this_experiment_dir, 'out.log'),
+        encoding='utf-8',
+        level=logging.INFO
+    )
 
     seed, num_symbols, entropy, formalism_arg = grammar_args
 
@@ -106,16 +101,14 @@ def main(grammar_args, j):
     logger.info(f'Optimizing {grammar} to have entropy {entropy}...')
     if not grammar.optimize(H_t=entropy, do_logging=True):
         logger.info(f'Optimization failed. Consider retrying.')
-        with _experiment_lock:
-            if not os.path.exists('failed.tsv'):
-                open('failed.tsv', 'w+', encoding='utf-8')
-            with open('failed.tsv', 'r', encoding='utf-8') as f:
-                line = f'{grammar}\t{entropy}'
-                if line not in f.read().splitlines():
-                    f.close()
-                    with open('failed.tsv', 'a', encoding='utf-8') as g:
-                        g.write(line + '\n')
-            return
+        if not os.path.exists('failed.tsv'):
+            open('failed.tsv', 'w+', encoding='utf-8')
+        with open('failed.tsv', 'r', encoding='utf-8') as f:
+            line = f'{grammar}\t{entropy}'
+            if line not in f.read().splitlines():
+                f.close()
+                with open('failed.tsv', 'a', encoding='utf-8') as g:
+                    g.write(line + '\n')
     
     logger.info(f'True entropy: {entropy}.')
     ge = grammar.entropy().item()
@@ -153,7 +146,9 @@ def main(grammar_args, j):
         log_freq = LOG_FREQ,
         eval_every = EVAL_EVERY,
         trf_or_lstm = 'lstm',
-        this_experiment_dir = this_experiment_dir
+        this_experiment_dir = this_experiment_dir,
+        logger = logger,
+        verbose = VERBOSE
     )
 
     logger.info(f'Training TRF:')
@@ -182,7 +177,9 @@ def main(grammar_args, j):
         log_freq = LOG_FREQ,
         eval_every = EVAL_EVERY,
         trf_or_lstm = 'trf',
-        this_experiment_dir = this_experiment_dir
+        this_experiment_dir = this_experiment_dir,
+        logger = logger,
+        verbose = VERBOSE
     )
 
 if __name__ == '__main__':
@@ -215,9 +212,5 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'j must be 0-2 but was {j}')
 
-    # can go more than 1 if we get that nice GPU ready
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        futures = [
-            executor.submit(main, grammar_args, j)
-            for grammar_args in product(*grid.values())
-        ]
+    for grammar_args in product(*grid.values()):
+        main(grammar_args, j)
