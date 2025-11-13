@@ -12,6 +12,7 @@ from lm import train_model
 # constant over all training runs
 DEBUG = False
 VERBOSE = False
+BATCH_SIZE = 128
 N_HEAD = 4 if not DEBUG else 2 # ignored by LSTM
 MAX_LENGTH = 128
 MAX_EPOCHS = 20 if not DEBUG else 1
@@ -19,8 +20,8 @@ LR = 1e-3
 WD = 1e-5
 LOG_FREQ = 100 if not DEBUG else 10
 EVAL_EVERY = 100 if not DEBUG else 100
-NUM_SEQS_TRAIN = 100_000 if not DEBUG else 1000
-NUM_SEQS_VAL = 100_000 if not DEBUG else 1000
+NUM_SEQS_TRAIN = 128_000 if not DEBUG else 1024
+NUM_SEQS_VAL = 128_000 if not DEBUG else 1024
 
 # model-specific
 N_EMBD_LSTM = 128 if not DEBUG else 64
@@ -146,6 +147,7 @@ def main(grammar_args, j):
         log_freq = LOG_FREQ,
         eval_every = EVAL_EVERY,
         trf_or_lstm = 'lstm',
+        batch_size = BATCH_SIZE,
         this_experiment_dir = this_experiment_dir,
         logger = logger,
         verbose = VERBOSE

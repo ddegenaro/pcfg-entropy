@@ -15,7 +15,8 @@ class PCFG(Grammar):
         chr_ord_offset: int = 97,
         from_file: str = None,
         num_symbols: int = 10,
-        num_non_terminals: int = 10
+        num_non_terminals: int = 10,
+        do_logging: bool = False
     ):
         
         """
@@ -465,11 +466,13 @@ class PCFGDataset(SequenceDataset):
         self,
         grammar: PCFG,
         num_seqs: int = 100,
-        max_length: int = 128
+        max_length: int = 128,
+        do_logging: bool = False
     ):
         
         super().__init__(
             grammar=grammar,
             num_seqs=num_seqs,
-            max_length=max_length
+            max_length=max_length,
+            do_logging=do_logging
         )

@@ -387,11 +387,13 @@ class PFSADataset(SequenceDataset):
         self,
         grammar: PFSA,
         num_seqs: int = 100,
-        max_length: int = 128
+        max_length: int = 128,
+        do_logging: int = False
     ):
         
         super().__init__(
             grammar=grammar,
             num_seqs=num_seqs,
-            max_length=max_length
+            max_length=max_length,
+            do_logging=do_logging
         )
