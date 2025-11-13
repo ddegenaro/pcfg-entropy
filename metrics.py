@@ -83,7 +83,11 @@ def both_metrics(
             total_loss += loss * tokens # reconstructed total loss over these tokens
             total_tokens += tokens
             p_model.extend(
-                get_sequence_probabilities(logits, batch['input_ids'], batch['attention_mask'])[0].tolist()
+                get_sequence_probabilities(
+                    logits,
+                    batch['input_ids'],
+                    batch['attention_mask']
+                )[0].tolist()
             )
     
     model.train()

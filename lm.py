@@ -71,13 +71,15 @@ def train_epoch(
     p_true: list[float],
     this_experiment_dir: str,
     logger: Logger,
-    verbose: bool
+    verbose: bool,
+    all_train_losses: list[float],
+    all_train_tokens: list[int]
 ):
     
     model.train()
 
-    running_total_train_loss = sum(l * t for l, t in zip(train_losses, train_tokens))
-    running_total_train_tokens = sum(train_tokens)
+    running_total_train_loss = sum(l * t for l, t in zip(all_train_losses, all_train_tokens))
+    running_total_train_tokens = sum(all_train_tokens)
 
     logger.info('-' * 100)
     logger.info(f'Begin training epoch {epoch}.')
@@ -132,6 +134,9 @@ def train_epoch(
             with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'a', encoding='utf-8') as f:
                 for i in range(len(train_losses)):
                     f.write(f'{train_losses[i]}\t{train_tokens[i]}\n')
+                    
+            all_train_losses.extend(train_losses)
+            all_train_tokens.extend(train_tokens)
                     
             train_losses = []
             train_tokens = []
@@ -247,6 +252,9 @@ def train_model(
 
     with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'w+', encoding='utf-8') as f:
         f.write('step\trho\trho_pval\tce\n')
+        
+    all_train_losses = []
+    all_train_tokens = []
 
     for epoch in range(max_epochs):
 
@@ -268,5 +276,7 @@ def train_model(
             p_true=p_true,
             this_experiment_dir=this_experiment_dir,
             logger=logger,
-            verbose=verbose
+            verbose=verbose,
+            all_train_losses=all_train_losses,
+            all_train_tokens=all_train_tokens
         )
