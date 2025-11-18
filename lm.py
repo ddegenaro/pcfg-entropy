@@ -170,18 +170,7 @@ def train_model(
     grammar: Grammar,
     train_data: SequenceDataset,
     val_data: SequenceDataset,
-    n_embd: int = 256,
-    n_hidden: int = 128,
-    n_layer: int = 6,
-    n_head: int = 4,
-    n_positions: int = 256,
-    lr: int = 1e-3,
-    wd: int = 1e-5,
-    max_epochs: int = 20,
-    log_freq: int = 100,
-    eval_every: int = 1000,
-    trf_or_lstm: str = 'trf',
-    batch_size: int = 32,
+    hparams: dict,
     this_experiment_dir: str = '.',
     logger: Logger = None,
     verbose: bool = False
@@ -189,55 +178,34 @@ def train_model(
     
     model, optimizer, param_count = create_model_and_optimizer(
         grammar,
-        n_embd=n_embd,
-        n_hidden=n_hidden,
-        n_layer=n_layer,
-        n_head=n_head,
-        n_positions=n_positions,
-        lr=lr,
-        wd=wd,
-        model_type=trf_or_lstm,
+        n_embd=hparams['n_embd'],
+        n_hidden=hparams['n_hidden'],
+        n_layer=hparams['n_layer'],
+        n_head=hparams['n_head'],
+        n_positions=hparams['n_positions'],
+        lr=hparams['lr'],
+        wd=hparams['wd'],
+        model_type=hparams['model_type'],
         logger=logger
     )
 
     logger.info(f'Building train dataloader...')
     train_data_loader = SequenceDataLoader(
         ds=train_data,
-        batch_size=batch_size,
+        batch_size=hparams['batch_size'],
         shuffle=True,
-        max_length=n_positions
+        max_length=hparams['n_positions']
     )
 
     logger.info(f'Building val dataloader...')
     val_data_loader = SequenceDataLoader(
         ds=val_data,
-        batch_size=batch_size,
+        batch_size=hparams['batch_size'],
         shuffle=False,
-        max_length=n_positions
+        max_length=hparams['n_positions']
     )
 
-    hparams = {
-        'grammar_type': grammar.formalism,
-        'grammar_seed': grammar.seed,
-        'grammar_num_symbols': grammar.num_symbols,
-        'grammar_str': grammar.file_name_convention,
-        'grammar_entropy': grammar.entropy().item(),
-        'train_data_stats': train_data.basic_stats(),
-        'train_data_ee': train_data.excess_entropy(),
-        'val_data_stats': val_data.basic_stats(),
-        'val_data_ee': val_data.excess_entropy(), 
-        'n_embd': n_embd,
-        'n_hidden': n_hidden,
-        'n_layer': n_layer,
-        'n_head': n_head,
-        'n_positions': n_positions,
-        'lr': lr,
-        'wd': wd,
-        'max_epochs': max_epochs,
-        'log_freq': log_freq,
-        'model_type': trf_or_lstm,
-        'param_count': param_count
-    }
+    hparams['param_count'] = param_count
 
     hparams_loc = os.path.join(this_experiment_dir, 'hparams.json')
     logger.info(f'Writing hparams to {hparams_loc}')
@@ -262,11 +230,11 @@ def train_model(
     best_loss = torch.inf
     strikes = 0
 
-    for epoch in range(max_epochs):
+    for epoch in range(hparams['max_epochs']):
 
         torch.manual_seed(
             torch.randint(
-                low=0, high=max_epochs**2, size=(1,),
+                low=0, high=hparams['max_epochs']**2, size=(1,),
                 generator=grammar.cpu_generator
             ).item()
         )
@@ -276,8 +244,8 @@ def train_model(
             model=model,
             optimizer=optimizer,
             epoch=epoch,
-            log_freq=log_freq,
-            eval_every=eval_every, # evaluate every X steps
+            log_freq=hparams['log_freq'],
+            eval_every=hparams['eval_every'], # evaluate every X steps
             val_data_loader=val_data_loader,
             p_true=p_true,
             this_experiment_dir=this_experiment_dir,

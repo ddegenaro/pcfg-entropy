@@ -33,6 +33,8 @@ class NGram(Grammar):
         
         # formalism-specific inits
         self.formalism = 'ngram'
+        self.num_contexts = self.num_symbols ** (self.order - 1)
+        self.zero = torch.tensor(0., device=self.device)
         self.order: int = order
         assert self.order in {1, 2, 3, 4, 5} # probably dangerous to try 6, needs V^6 weights
 
@@ -44,10 +46,8 @@ class NGram(Grammar):
             from_file,
             num_symbols
         )
+        
         self.file_name_convention = f'ngram_seed_{self.seed}_symbols_{self.num_symbols}_order_{self.order}'
-
-        self.num_contexts = self.num_symbols ** (self.order - 1)
-        self.zero = torch.tensor(0., device=self.device)
 
         self.validate()
 

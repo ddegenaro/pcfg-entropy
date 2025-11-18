@@ -45,7 +45,6 @@ class PCFG(Grammar):
             from_file,
             num_symbols
         )
-        self.file_name_convention = f'pcfg_seed_{self.seed}_symbols_{self.num_symbols}_nts_{self.num_non_terminals}'
 
         # non-terminals are integers, terminals are utf-8 characters
         self.N_ordered: list[int] = [
@@ -53,6 +52,8 @@ class PCFG(Grammar):
         ]
         self.N = set(self.N_ordered)
         self.NUS = self.N.union(set([self.S]))
+        
+        self.file_name_convention = f'pcfg_seed_{self.seed}_symbols_{self.num_symbols}_nts_{self.num_non_terminals}'
 
         self.validate()
 

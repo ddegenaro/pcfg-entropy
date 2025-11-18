@@ -1,4 +1,5 @@
 import os
+import json
 from argparse import ArgumentParser
 from itertools import product
 from collections import OrderedDict
@@ -12,10 +13,10 @@ from lm import train_model
 # constant over all training runs
 DEBUG = False
 VERBOSE = False
-BATCH_SIZE = 128
+BATCH_SIZE = 32
 N_HEAD = 4 if not DEBUG else 2 # ignored by LSTM
 MAX_LENGTH = 128
-MAX_EPOCHS = 20 if not DEBUG else 1
+MAX_EPOCHS = 3 if not DEBUG else 1
 LR = 1e-3
 WD = 1e-5
 LOG_FREQ = 100 if not DEBUG else 10
@@ -33,21 +34,17 @@ N_HIDDEN_TRF = 128 if not DEBUG else 64
 N_LAYER_LSTM = 6 if not DEBUG else 3
 N_LAYER_TRF = 4 if not DEBUG else 3
 
-# constant over formalisms
-seeds = [0]#, 1, 2, 3, 4]
-nums_symbols = [10, 100, 1000, 10_000, 100_000]
-entropies = [4., 8., 16., 32., 64.]
-model_types = ['lstm', 'trf']
-
 # formalism-specific
 ngram_orders = [1, 2, 3, 4, 5]
 pfsa_nums_states = [4, 8, 16, 32, 64]
 pcfg_nums_nts = [4, 8, 16, 32, 64]
 
+# constant over formalisms
 default_grid = OrderedDict({
-    'seed': seeds,
-    'num_symbols': nums_symbols,
-    'entropies': entropies
+    'seed': [0],
+    'num_symbols': [100, 1000, 10_000, 100_000],
+    'entropies': [8., 16., 32., 64.],
+    'model_types': ['lstm', 'trf']
 })
 
 ngram_grid = default_grid.copy()
@@ -61,9 +58,20 @@ pcfg_grid['num_non_terminals'] = pcfg_nums_nts
 
 def main(grammar_args, j):
     
+    to_skip = set()
+    
     if not os.path.exists('experiments'):
         this_experiment = '1'
     else:
+        for x in os.listdir('experiments'):
+            d = os.path.join('experiments', x)
+            if len(os.listdir(d)) == 0:
+                os.rmdir(d)
+            else:
+                j = json.load(
+                    open(os.path.join(d, 'hparams.json'), 'r', encoding='utf-8')
+                )
+                to_skip.add(j['grammar_str'], j['model_type'], j['grammar_entropy'])
         experiments = [int(x.replace('_test', '')) for x in os.listdir('experiments')]
         this_experiment = str(max(experiments) + 1)
     if DEBUG:
@@ -78,7 +86,33 @@ def main(grammar_args, j):
         level=logging.INFO
     )
 
-    seed, num_symbols, entropy, formalism_arg = grammar_args
+    seed, num_symbols, entropy, model_type, formalism_arg = grammar_args
+    
+    hparams = {
+        'grammar_type': grammar.formalism,
+        'grammar_seed': grammar.seed,
+        'grammar_num_symbols': grammar.num_symbols,
+        'grammar_str': grammar.file_name_convention,
+        'grammar_formalism_arg': formalism_arg,
+        'grammar_target_entropy': entropy,
+        'grammar_actual_entropy': grammar.entropy().item(),
+        'train_data_stats': train_data.basic_stats(),
+        'train_data_ee': train_data.excess_entropy(),
+        'val_data_stats': val_data.basic_stats(),
+        'val_data_ee': val_data.excess_entropy(), 
+        'n_embd': N_EMBD_LSTM if model_type == 'lstm' else N_EMBD_TRF,
+        'n_hidden': N_HIDDEN_LSTM if model_type == 'lstm' else N_LAYER_TRF,
+        'n_layer': N_LAYER_LSTM if model_type == 'lstm' else N_LAYER_TRF,
+        'n_head': N_HEAD,
+        'n_positions': MAX_LENGTH,
+        'lr': LR,
+        'wd': WD,
+        'batch_size': BATCH_SIZE,
+        'max_epochs': MAX_EPOCHS,
+        'eval_every': EVAL_EVERY,
+        'log_freq': LOG_FREQ,
+        'model_type': model_type
+    }
 
     if j == 0:
         grammar = NGram(
@@ -102,13 +136,13 @@ def main(grammar_args, j):
     logger.info(f'Optimizing {grammar} to have entropy {entropy}...')
     if not grammar.optimize(H_t=entropy, do_logging=True):
         logger.info(f'Optimization failed. Consider retrying.')
-        if not os.path.exists('failed.tsv'):
-            open('failed.tsv', 'w+', encoding='utf-8')
-        with open('failed.tsv', 'r', encoding='utf-8') as f:
+        if not os.path.exists('failed_opt.tsv'):
+            open('failed_opt.tsv', 'w+', encoding='utf-8')
+        with open('failed_opt.tsv', 'r', encoding='utf-8') as f:
             line = f'{grammar}\t{entropy}'
             if line not in f.read().splitlines():
                 f.close()
-                with open('failed.tsv', 'a', encoding='utf-8') as g:
+                with open('failed_opt.tsv', 'a', encoding='utf-8') as g:
                     g.write(line + '\n')
     
     logger.info(f'True entropy: {entropy}.')
@@ -117,72 +151,64 @@ def main(grammar_args, j):
     logger.info(f'Diff: {abs(ge - entropy)}')
     
     logger.info(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...')
-    train_data = dataset_type(grammar, num_seqs=NUM_SEQS_TRAIN, max_length=MAX_LENGTH, do_logging=False)
+    train_data = dataset_type(
+        grammar,
+        num_seqs=NUM_SEQS_TRAIN,
+        max_length=MAX_LENGTH,
+        do_logging=False,
+        fp=os.path.join(this_experiment_dir, 'train.txt')
+    )
     logger.info(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...')
-    val_data = dataset_type(grammar, num_seqs=NUM_SEQS_VAL, max_length=MAX_LENGTH, do_logging=False)
-
-    logger.info(f'Training LSTM:')
-    logger.info(f'\tn_embd: {N_EMBD_LSTM}')
-    logger.info(f'\tn_hidden: {N_HIDDEN_LSTM}')
-    logger.info(f'\tn_layer: {N_LAYER_LSTM}')
-    logger.info(f'\tn_head: {N_HEAD}')
-    logger.info(f'\tn_positions: {MAX_LENGTH}')
-    logger.info(f'\tlr: {LR}')
-    logger.info(f'\twd: {WD}')
-    logger.info(f'\tmax_epochs: {MAX_EPOCHS}')
-    logger.info(f'\tlog_freq: {LOG_FREQ}')
-    logger.info(f'\teval_every: {EVAL_EVERY}')
-    train_model(
+    val_data = dataset_type(
         grammar,
-        train_data,
-        val_data,
-        n_embd = N_EMBD_LSTM,
-        n_hidden = N_HIDDEN_LSTM,
-        n_layer = N_LAYER_LSTM,
-        n_head = N_HEAD,
-        n_positions = MAX_LENGTH,
-        lr = LR,
-        wd = WD,
-        max_epochs = MAX_EPOCHS,
-        log_freq = LOG_FREQ,
-        eval_every = EVAL_EVERY,
-        trf_or_lstm = 'lstm',
-        batch_size = BATCH_SIZE,
-        this_experiment_dir = this_experiment_dir,
-        logger = logger,
-        verbose = VERBOSE
+        num_seqs=NUM_SEQS_VAL,
+        max_length=MAX_LENGTH,
+        do_logging=False,
+        fp=os.path.join(this_experiment_dir, 'val.txt')
     )
 
-    logger.info(f'Training TRF:')
-    logger.info(f'\tn_embd: {N_EMBD_TRF}')
-    logger.info(f'\tn_hidden: {N_HIDDEN_TRF}')
-    logger.info(f'\tn_layer: {N_LAYER_TRF}')
-    logger.info(f'\tn_head: {N_HEAD}')
-    logger.info(f'\tn_positions: {MAX_LENGTH}')
-    logger.info(f'\tlr: {LR}')
-    logger.info(f'\twd: {WD}')
-    logger.info(f'\tmax_epochs: {MAX_EPOCHS}')
-    logger.info(f'\tlog_freq: {LOG_FREQ}')
-    logger.info(f'\teval_every: {EVAL_EVERY}')
-    train_model(
-        grammar,
-        train_data,
-        val_data,
-        n_embd = N_EMBD_TRF,
-        n_hidden = N_HIDDEN_TRF,
-        n_layer = N_LAYER_TRF,
-        n_head = N_HEAD,
-        n_positions = MAX_LENGTH,
-        lr = LR,
-        wd = WD,
-        max_epochs = MAX_EPOCHS,
-        log_freq = LOG_FREQ,
-        eval_every = EVAL_EVERY,
-        trf_or_lstm = 'trf',
-        this_experiment_dir = this_experiment_dir,
-        logger = logger,
-        verbose = VERBOSE
-    )
+    if model_type == 'lstm':
+        logger.info(f'Training LSTM:')
+        logger.info(f'\tn_embd: {N_EMBD_LSTM}')
+        logger.info(f'\tn_hidden: {N_HIDDEN_LSTM}')
+        logger.info(f'\tn_layer: {N_LAYER_LSTM}')
+        logger.info(f'\tn_head: {N_HEAD}')
+        logger.info(f'\tn_positions: {MAX_LENGTH}')
+        logger.info(f'\tlr: {LR}')
+        logger.info(f'\twd: {WD}')
+        logger.info(f'\tmax_epochs: {MAX_EPOCHS}')
+        logger.info(f'\tlog_freq: {LOG_FREQ}')
+        logger.info(f'\teval_every: {EVAL_EVERY}')
+        train_model(
+            grammar,
+            train_data,
+            val_data,
+            hparams,
+            this_experiment_dir = this_experiment_dir,
+            logger = logger,
+            verbose = VERBOSE
+        )
+    elif model_type == 'trf':
+        logger.info(f'Training TRF:')
+        logger.info(f'\tn_embd: {N_EMBD_TRF}')
+        logger.info(f'\tn_hidden: {N_HIDDEN_TRF}')
+        logger.info(f'\tn_layer: {N_LAYER_TRF}')
+        logger.info(f'\tn_head: {N_HEAD}')
+        logger.info(f'\tn_positions: {MAX_LENGTH}')
+        logger.info(f'\tlr: {LR}')
+        logger.info(f'\twd: {WD}')
+        logger.info(f'\tmax_epochs: {MAX_EPOCHS}')
+        logger.info(f'\tlog_freq: {LOG_FREQ}')
+        logger.info(f'\teval_every: {EVAL_EVERY}')
+        train_model(
+            grammar,
+            train_data,
+            val_data,
+            hparams,
+            this_experiment_dir = this_experiment_dir,
+            logger = logger,
+            verbose = VERBOSE
+        )
 
 if __name__ == '__main__':
     parser = ArgumentParser()

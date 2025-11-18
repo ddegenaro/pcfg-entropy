@@ -33,7 +33,7 @@ class PFSA(Grammar):
         # formalism-specific init
         self.formalism = 'pfsa'
         self.num_states: int = num_states
-
+        
         # load weights and validate
         super().__init__(
             seed,
@@ -42,13 +42,14 @@ class PFSA(Grammar):
             from_file,
             num_symbols
         )
-        self.file_name_convention = f'pfsa_seed_{self.seed}_symbols_{self.num_symbols}_states_{self.num_states}'
 
         # formalism-specific data to keep track of, computed last
         self.Q_ordered: list[int] = [
             x for x in range(self.num_states)
         ]
         self.Q = set(self.Q_ordered)
+        
+        self.file_name_convention = f'pfsa_seed_{self.seed}_symbols_{self.num_symbols}_states_{self.num_states}'
 
         self.validate()
 

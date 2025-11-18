@@ -1,5 +1,5 @@
 from random import Random
-from typing import Union, Iterable
+from typing import Union, Iterable, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
@@ -187,8 +187,6 @@ class Grammar(nn.Module):
         """
 
         super().__init__()
-        self.file_name_convention = ''
-        self.formalism = ''
 
         self.seed: int = seed
         self.device: Union[str, torch.device] = device
@@ -361,26 +359,47 @@ class Grammar(nn.Module):
         max_length: int = 128,
         num_seqs: int = 1,
         max_threads: int = None,
-        do_logging: bool = False
-    ) -> list[Sequence]:
+        do_logging: bool = False,
+        fp: str = None
+    ) -> Union[list[Sequence], Generator[Sequence]]:
         
         if max_length is None or max_length <= 0:
             max_length = torch.inf
 
-        with ThreadPoolExecutor(max_workers=max_threads) as executor:
-            futures = [
-                executor.submit(self._generate_one, max_length)
-                for _ in range(num_seqs)
-            ]
-            if do_logging:
-                seqs = [
-                    future.result() 
-                    for future in tqdm(as_completed(futures), total=num_seqs)
+        if fp is None:
+            with ThreadPoolExecutor(max_workers=max_threads) as executor:
+                futures = [
+                    executor.submit(self._generate_one, max_length)
+                    for _ in range(num_seqs)
                 ]
-            else:
-                seqs = [future.result() for future in futures]
+                if do_logging:
+                    seqs = [
+                        future.result() 
+                        for future in tqdm(as_completed(futures), total=num_seqs)
+                    ]
+                else:
+                    seqs = [future.result() for future in futures]
 
-        return seqs
+            return seqs
+        else:
+            with open(fp, 'w+', encoding='utf-8') as f:
+                with ThreadPoolExecutor(max_workers=max_threads) as executor:
+                    futures = [
+                        executor.submit(self._generate_one, max_length)
+                        for _ in range(num_seqs)
+                    ]
+                    
+                    if do_logging:
+                        iterable = tqdm(as_completed(futures), total=num_seqs)
+                    else:
+                        iterable = as_completed(futures)
+                    
+                    for future in iterable:
+                        f.write(str(future.result()) + '\n')
+
+            with open(fp, 'r', encoding='utf-8') as f:
+                for line in f:
+                    yield Sequence(line.strip())
 
     def _get_param_copy(self) -> dict:
         """
@@ -416,7 +435,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         grammar: Grammar,
         num_seqs: int = 100,
         max_length: int = 128,
-        do_logging: bool = True
+        do_logging: bool = True,
+        fp: str = None
     ):
         
         super().__init__()
@@ -425,27 +445,45 @@ class SequenceDataset(torch.utils.data.Dataset):
             max_length = torch.inf
         self.grammar = grammar
         self.max_length = max_length
-        self.seqs: list[Sequence] = self.grammar.generate(
-            max_length=max_length,
-            num_seqs=num_seqs,
-            do_logging=do_logging
-        )
+        self.num_seqs = num_seqs
+        self.fp = fp
+        
+        if self.fp is None:
+            self.seq_list = self.grammar.generate(
+                max_length=max_length,
+                num_seqs=num_seqs,
+                do_logging=do_logging
+            )
+        else:
+            self.seq_list = None
 
         self.m_local_entropies = {}
         self.n_gram_counts = {}
 
     def __getitem__(self, idx):
-        return self.seqs[idx]
+        
+        if self.fp is None:
+            return self.seqs()[idx]
+        else:
+            raise NotImplementedError('Cannot index when using a filegen.')
     
     def __len__(self):
-        return len(self.seqs)
+        return self.num_seqs
     
     def __iter__(self):
-        return iter(self.seqs)
+        return iter(self.seqs())
+    
+    def seqs(self):
+        if self.seq_list is not None:
+            return self.seq_list
+        else:
+            with open(self.fp, 'r', encoding='utf-8') as f:
+                for line in f:
+                    yield Sequence(line.strip())
 
     def basic_stats(self) -> dict:
 
-        lens = sorted([len(t) for t in self.seqs])
+        lens = sorted([len(t) for t in self.seqs()])
 
         tokens = sum(lens)
 
@@ -471,7 +509,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             'mean_length': tokens / len(self),
             'median_length': median,
             'mode_length': mode,
-            'num_seqs': len(self.seqs)
+            'num_seqs': len(self)
         }
 
     def m_local_entropy(
