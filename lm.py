@@ -73,7 +73,10 @@ def train_epoch(
     logger: Logger,
     verbose: bool,
     all_train_losses: list[float],
-    all_train_tokens: list[int]
+    all_train_tokens: list[int],
+    last_k_ces: list[float],
+    patience: int,
+    tol: float
 ):
     
     model.train()
@@ -121,7 +124,7 @@ def train_epoch(
             logger.info(msg)
 
         if step % eval_every == 0:
-            val_epoch(
+            ce = val_epoch(
                 val_data_loader=val_data_loader,
                 model=model,
                 step=step,
@@ -140,6 +143,26 @@ def train_epoch(
                     
             train_losses = []
             train_tokens = []
+            
+            if len(last_k_ces) == patience:
+                del last_k_ces[0]
+            last_k_ces.append(ce)
+            
+            if len(last_k_ces) == patience:
+                flags = []
+                for i in range(1, len(last_k_ces)):
+                    if last_k_ces[i-1] - last_k_ces[i] < last_k_ces[i-1] * tol:
+                        flags.append(True)
+                    else:
+                        flags.append(False)
+                        
+                if all(flags):
+                    # TODO: end training
+                    return 'end'
+                    
+            
+                    
+                
 
 def val_epoch(
     val_data_loader: SequenceDataLoader,
@@ -165,6 +188,8 @@ def val_epoch(
     
     with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'a', encoding='utf-8') as f:
         f.write(f'{step}\t{rho.statistic}\t{rho.pvalue}\t{ce}\n')
+        
+    return ce
 
 def train_model(
     grammar: Grammar,
@@ -227,8 +252,7 @@ def train_model(
     all_train_losses = []
     all_train_tokens = []
     
-    best_loss = torch.inf
-    strikes = 0
+    last_k_ces = []
 
     for epoch in range(hparams['max_epochs']):
 
@@ -239,7 +263,7 @@ def train_model(
             ).item()
         )
 
-        train_epoch(
+        signal = train_epoch(
             train_data_loader=train_data_loader,
             model=model,
             optimizer=optimizer,
@@ -252,17 +276,11 @@ def train_model(
             logger=logger,
             verbose=verbose,
             all_train_losses=all_train_losses,
-            all_train_tokens=all_train_tokens
+            all_train_tokens=all_train_tokens,
+            last_k_ces=last_k_ces,
+            patience=hparams['patience'],
+            tol=hparams['tolerance']
         )
-
-        curr_loss = sum(
-            [loss * tokens for loss, tokens in zip(all_train_losses, all_train_tokens)]
-        ) / sum(all_train_tokens)
         
-        if curr_loss <= best_loss:
-            best_loss = curr_loss
-        else: # curr_loss > best_loss
-            strikes += 1
-            
-        if strikes == 5:
-            break
+        if signal == 'end':
+            return

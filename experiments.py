@@ -12,6 +12,8 @@ from lm import train_model
 
 # constant over all training runs
 DEBUG = False
+PATIENCE = 5 # number of evals to wait before breaking if no appreciable change
+TOLERANCE = 1e-3 # proportion of loss decrease equivalent to "no appreciable change"
 VERBOSE = False
 BATCH_SIZE = 32
 N_HEAD = 4 if not DEBUG else 2 # ignored by LSTM
@@ -111,7 +113,9 @@ def main(grammar_args, j):
         'max_epochs': MAX_EPOCHS,
         'eval_every': EVAL_EVERY,
         'log_freq': LOG_FREQ,
-        'model_type': model_type
+        'model_type': model_type,
+        'patience': PATIENCE,
+        'tolerance': TOLERANCE
     }
 
     if j == 0:
