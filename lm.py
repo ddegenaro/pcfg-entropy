@@ -60,6 +60,8 @@ def create_model_and_optimizer(
 
     return (model, optimizer, param_count)
 
+
+
 def train_epoch(
     train_data_loader: SequenceDataLoader,
     model: torch.nn.Module,
@@ -157,12 +159,9 @@ def train_epoch(
                         flags.append(False)
                         
                 if all(flags):
-                    # TODO: end training
                     return 'end'
-                    
-            
-                    
-                
+
+
 
 def val_epoch(
     val_data_loader: SequenceDataLoader,
