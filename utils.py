@@ -1,3 +1,4 @@
+import os
 from random import Random
 from typing import Union, Iterable, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -250,6 +251,7 @@ class Grammar(nn.Module):
         raise NotImplementedError
     
     def estimated_mls(self):
+        
         tol = 1e-3
         last_estimate = -1.
         total_seqs = 0
@@ -353,53 +355,60 @@ class Grammar(nn.Module):
             if self.generator is None:
                 print(f'No GPU generator available - does this machine have a GPU?')
         return self
-
+                    
     def generate(
         self,
         max_length: int = 128,
         num_seqs: int = 1,
         max_threads: int = None,
         do_logging: bool = False,
-        fp: str = None
-    ) -> Union[list[Sequence], Generator]:
+        data_dir: str = None
+    ):
         
         if max_length is None or max_length <= 0:
             max_length = torch.inf
-
-        if fp is None:
-            with ThreadPoolExecutor(max_workers=max_threads) as executor:
-                futures = [
-                    executor.submit(self._generate_one, max_length)
-                    for _ in range(num_seqs)
-                ]
-                if do_logging:
-                    seqs = [
-                        future.result() 
-                        for future in tqdm(as_completed(futures), total=num_seqs)
-                    ]
-                else:
-                    seqs = [future.result() for future in futures]
-
-            return seqs
+        
+        if data_dir is None:
+            return self._generate_to_list(max_length, num_seqs, max_threads, do_logging)
         else:
-            with open(fp, 'w+', encoding='utf-8') as f:
-                with ThreadPoolExecutor(max_workers=max_threads) as executor:
-                    futures = [
-                        executor.submit(self._generate_one, max_length)
-                        for _ in range(num_seqs)
-                    ]
-                    
-                    if do_logging:
-                        iterable = tqdm(as_completed(futures), total=num_seqs)
-                    else:
-                        iterable = as_completed(futures)
-                    
-                    for future in iterable:
-                        f.write(str(future.result()) + '\n')
+            return self._generate_to_file(max_length, num_seqs, max_threads, do_logging, data_dir)
 
-            with open(fp, 'r', encoding='utf-8') as f:
-                for line in f:
-                    yield Sequence(line.strip())
+    def _generate_to_list(
+        self,
+        max_length: int,
+        num_seqs: int,
+        max_threads: int,
+        do_logging: bool
+    ) -> list[Sequence]:
+        with ThreadPoolExecutor(max_workers=max_threads) as executor:
+            futures = [executor.submit(self._generate_one, max_length) for _ in range(num_seqs)]
+            if do_logging:
+                seqs = [future.result() for future in tqdm(as_completed(futures), total=num_seqs)]
+            else:
+                seqs = [future.result() for future in futures]
+        return seqs
+
+    def _generate_to_file(
+        self,
+        max_length: int,
+        num_seqs: int,
+        max_threads: int,
+        do_logging: bool,
+        data_dir: str
+    ):
+        
+        os.makedirs(data_dir, exist_ok=True)
+        
+        with ThreadPoolExecutor(max_workers=max_threads) as executor:
+            futures = [executor.submit(self._generate_one, max_length) for _ in range(num_seqs)]
+            iterable = tqdm(as_completed(futures), total=num_seqs) if do_logging else as_completed(futures)
+            for i, future in enumerate(iterable):
+                with open(os.path.join(data_dir, f'{i}.txt'), 'w+', encoding='utf-8') as f:
+                    f.write(str(future.result()))
+                
+        for fp in sorted(os.listdir(data_dir), key=lambda x: int(x.split('.')[0])):
+            with open(os.path.join(data_dir, fp), 'r', encoding='utf-8') as f:
+                yield Sequence(f.read())
 
     def _get_param_copy(self) -> dict:
         """
@@ -436,7 +445,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         num_seqs: int = 100,
         max_length: int = 128,
         do_logging: bool = True,
-        fp: str = None
+        data_dir: str = None
     ):
         
         super().__init__()
@@ -446,40 +455,47 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.grammar = grammar
         self.max_length = max_length
         self.num_seqs = num_seqs
-        self.fp = fp
+        self.data_dir = data_dir
         
-        if self.fp is None:
+        if self.data_dir is None:
             self.seq_list = self.grammar.generate(
                 max_length=max_length,
                 num_seqs=num_seqs,
                 do_logging=do_logging
             )
+            self.seq_gen = None
         else:
             self.seq_list = None
+            self.seq_gen = self.grammar.generate(
+                max_length=max_length,
+                num_seqs=num_seqs,
+                do_logging=do_logging,
+                data_dir=self.data_dir
+            )
+            for _ in self.seq_gen:
+                pass
+            
 
         self.m_local_entropies = {}
         self.n_gram_counts = {}
 
     def __getitem__(self, idx):
         
-        if self.fp is None:
-            return self.seqs()[idx]
+        if self.seq_gen is None:
+            return self.seq_list[idx]
         else:
-            raise NotImplementedError('Cannot index when using a filegen.')
+            return next(self.seq_gen)
     
     def __len__(self):
         return self.num_seqs
-    
-    def __iter__(self):
-        return iter(self.seqs())
     
     def seqs(self):
         if self.seq_list is not None:
             return self.seq_list
         else:
-            with open(self.fp, 'r', encoding='utf-8') as f:
-                for line in f:
-                    yield Sequence(line.strip())
+            for fp in sorted(os.listdir(self.data_dir), key=lambda x: int(x.split('.')[0])):
+                with open(os.path.join(self.data_dir, fp), 'r', encoding='utf-8') as f:
+                    yield f.read()
 
     def basic_stats(self) -> dict:
 
@@ -523,7 +539,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         d = self.n_gram_counts[order]
 
         # count all m-grams of order "order"
-        for seq in self.seqs:
+        for seq in self.seqs():
 
             s = self.example_to_str(seq)
 
@@ -629,25 +645,26 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         return E
 
-    def shuffle(self, length_or_window: str, window_size: int = None):
-        assert length_or_window in ('length', 'window'), 'Must give "length" or "window".'
-        if length_or_window == 'window':
-            assert type(window_size) == int, 'Window size must be an integer.'
-            assert window_size > 1, 'Window size must be greater than 1.'
+    # TODO: fix so that file handling works
+    # def shuffle(self, length_or_window: str, window_size: int = None):
+    #     assert length_or_window in ('length', 'window'), 'Must give "length" or "window".'
+    #     if length_or_window == 'window':
+    #         assert type(window_size) == int, 'Window size must be an integer.'
+    #         assert window_size > 1, 'Window size must be greater than 1.'
 
-        if length_or_window == 'length':
-            for i in range(len(self.seqs)):
-                tokens = self.grammar.tokenize(self.seqs[i])
-                Random(len(tokens)).shuffle(tokens)
-                self.seqs[i] = Sequence(self.grammar.untokenize(tokens, False))
-        else:
-            for i in range(len(self.seqs)):
-                tokens = self.grammar.tokenize(self.seqs[i])
-                for j in range(0, len(tokens), window_size):
-                    window = tokens[j:j + window_size]
-                    Random(window_size).shuffle(window)
-                    for k in range(len(window)):
-                        tokens[j + k] = window[k]
+    #     if length_or_window == 'length':
+    #         for seq in self.seqs():
+    #             tokens = self.grammar.tokenize(seq)
+    #             Random(len(tokens)).shuffle(tokens)
+    #             self.seqs[i] = Sequence(self.grammar.untokenize(tokens, False))
+    #     else:
+    #         for i in range(len(self)):
+    #             tokens = self.grammar.tokenize(self.seqs[i])
+    #             for j in range(0, len(tokens), window_size):
+    #                 window = tokens[j:j + window_size]
+    #                 Random(window_size).shuffle(window)
+    #                 for k in range(len(window)):
+    #                     tokens[j + k] = window[k]
 
 
 

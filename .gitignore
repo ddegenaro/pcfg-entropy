@@ -5,3 +5,6 @@ tempCodeRunnerFile.py
 venv/
 slurms/
 experiments/
+failed_opt.tsv
+failed.tsv
+run_job.sh

@@ -468,12 +468,14 @@ class PCFGDataset(SequenceDataset):
         grammar: PCFG,
         num_seqs: int = 100,
         max_length: int = 128,
-        do_logging: bool = False
+        do_logging: bool = False,
+        data_dir: str = None
     ):
         
         super().__init__(
             grammar=grammar,
             num_seqs=num_seqs,
             max_length=max_length,
-            do_logging=do_logging
+            do_logging=do_logging,
+            data_dir=data_dir
         )

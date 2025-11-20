@@ -70,10 +70,14 @@ def main(grammar_args, j):
             if len(os.listdir(d)) == 0:
                 os.rmdir(d)
             else:
-                j = json.load(
+                json_data = json.load(
                     open(os.path.join(d, 'hparams.json'), 'r', encoding='utf-8')
                 )
-                to_skip.add(j['grammar_str'], j['model_type'], j['grammar_entropy'])
+                to_skip.add((
+                    json_data['grammar_str'],
+                    json_data['model_type'],
+                    json_data['grammar_target_entropy']
+                ))
         experiments = [int(x.replace('_test', '')) for x in os.listdir('experiments')]
         this_experiment = str(max(experiments) + 1)
     if DEBUG:
@@ -89,6 +93,62 @@ def main(grammar_args, j):
     )
 
     seed, num_symbols, entropy, model_type, formalism_arg = grammar_args
+
+    if j == 0:
+        grammar = NGram(
+            seed=seed,
+            num_symbols=num_symbols,
+            order=formalism_arg
+        )
+    elif j == 1:
+        grammar = PFSA(
+            seed=seed,
+            num_symbols=num_symbols,
+            num_states=formalism_arg
+        )
+    elif j == 2:
+        grammar = PCFG(
+            seed=seed,
+            num_symbols=num_symbols,
+            num_non_terminals=formalism_arg
+        )
+        
+    if (grammar.file_name_convention, model_type, entropy) in to_skip:
+        return
+
+    logger.info(f'Optimizing {grammar} to have entropy {entropy}...')
+    if not grammar.optimize(H_t=entropy, do_logging=True):
+        logger.info(f'Optimization failed. Consider retrying.')
+        if not os.path.exists('failed_opt.tsv'):
+            open('failed_opt.tsv', 'w+', encoding='utf-8')
+        with open('failed_opt.tsv', 'r', encoding='utf-8') as f:
+            line = f'{grammar}\t{entropy}'
+            if line not in f.read().splitlines():
+                f.close()
+                with open('failed_opt.tsv', 'a', encoding='utf-8') as g:
+                    g.write(line + '\n')
+    
+    logger.info(f'True entropy: {entropy}.')
+    ge = grammar.entropy().item()
+    logger.info(f'Grammar entropy: {ge}')
+    logger.info(f'Diff: {abs(ge - entropy)}')
+    
+    logger.info(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...')
+    train_data = dataset_type(
+        grammar,
+        num_seqs=NUM_SEQS_TRAIN,
+        max_length=MAX_LENGTH,
+        do_logging=False,
+        data_dir=os.path.join(this_experiment_dir, 'train')
+    )
+    logger.info(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...')
+    val_data = dataset_type(
+        grammar,
+        num_seqs=NUM_SEQS_VAL,
+        max_length=MAX_LENGTH,
+        do_logging=False,
+        data_dir=os.path.join(this_experiment_dir, 'val')
+    )
     
     hparams = {
         'grammar_type': grammar.formalism,
@@ -117,59 +177,6 @@ def main(grammar_args, j):
         'patience': PATIENCE,
         'tolerance': TOLERANCE
     }
-
-    if j == 0:
-        grammar = NGram(
-            seed=seed,
-            num_symbols=num_symbols,
-            order=formalism_arg
-        )
-    elif j == 1:
-        grammar = PFSA(
-            seed=seed,
-            num_symbols=num_symbols,
-            num_states=formalism_arg
-        )
-    elif j == 2:
-        grammar = PCFG(
-            seed=seed,
-            num_symbols=num_symbols,
-            num_non_terminals=formalism_arg
-        )
-
-    logger.info(f'Optimizing {grammar} to have entropy {entropy}...')
-    if not grammar.optimize(H_t=entropy, do_logging=True):
-        logger.info(f'Optimization failed. Consider retrying.')
-        if not os.path.exists('failed_opt.tsv'):
-            open('failed_opt.tsv', 'w+', encoding='utf-8')
-        with open('failed_opt.tsv', 'r', encoding='utf-8') as f:
-            line = f'{grammar}\t{entropy}'
-            if line not in f.read().splitlines():
-                f.close()
-                with open('failed_opt.tsv', 'a', encoding='utf-8') as g:
-                    g.write(line + '\n')
-    
-    logger.info(f'True entropy: {entropy}.')
-    ge = grammar.entropy().item()
-    logger.info(f'Grammar entropy: {ge}')
-    logger.info(f'Diff: {abs(ge - entropy)}')
-    
-    logger.info(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...')
-    train_data = dataset_type(
-        grammar,
-        num_seqs=NUM_SEQS_TRAIN,
-        max_length=MAX_LENGTH,
-        do_logging=False,
-        fp=os.path.join(this_experiment_dir, 'train.txt')
-    )
-    logger.info(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...')
-    val_data = dataset_type(
-        grammar,
-        num_seqs=NUM_SEQS_VAL,
-        max_length=MAX_LENGTH,
-        do_logging=False,
-        fp=os.path.join(this_experiment_dir, 'val.txt')
-    )
 
     if model_type == 'lstm':
         logger.info(f'Training LSTM:')
