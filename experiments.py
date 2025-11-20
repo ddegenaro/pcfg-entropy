@@ -18,13 +18,13 @@ VERBOSE = False
 BATCH_SIZE = 32
 N_HEAD = 4 if not DEBUG else 2 # ignored by LSTM
 MAX_LENGTH = 128
-MAX_EPOCHS = 3 if not DEBUG else 1
+MAX_EPOCHS = 20 if not DEBUG else 20
 LR = 1e-3
 WD = 1e-5
-LOG_FREQ = 100 if not DEBUG else 10
-EVAL_EVERY = 100 if not DEBUG else 100
-NUM_SEQS_TRAIN = 128_000 if not DEBUG else 1024
-NUM_SEQS_VAL = 128_000 if not DEBUG else 1024
+LOG_FREQ = 100 if not DEBUG else 1
+EVAL_EVERY = 100 if not DEBUG else 1
+NUM_SEQS_TRAIN = 128_000 if not DEBUG else 256
+NUM_SEQS_VAL = 128_000 if not DEBUG else 256
 
 # model-specific
 N_EMBD_LSTM = 128 if not DEBUG else 64
@@ -85,13 +85,6 @@ def main(grammar_args, j):
     this_experiment_dir = os.path.join('experiments', this_experiment)
     os.makedirs(this_experiment_dir)
 
-    logger = logging.getLogger(__name__)
-    logging.basicConfig(
-        filename=os.path.join(this_experiment_dir, 'out.log'),
-        encoding='utf-8',
-        level=logging.INFO
-    )
-
     seed, num_symbols, entropy, model_type, formalism_arg = grammar_args
 
     if j == 0:
@@ -116,9 +109,9 @@ def main(grammar_args, j):
     if (grammar.file_name_convention, model_type, entropy) in to_skip:
         return
 
-    logger.info(f'Optimizing {grammar} to have entropy {entropy}...')
+    print(f'Optimizing {grammar} to have entropy {entropy}...')
     if not grammar.optimize(H_t=entropy, do_logging=True):
-        logger.info(f'Optimization failed. Consider retrying.')
+        print(f'Optimization failed. Consider retrying.')
         if not os.path.exists('failed_opt.tsv'):
             open('failed_opt.tsv', 'w+', encoding='utf-8')
         with open('failed_opt.tsv', 'r', encoding='utf-8') as f:
@@ -128,12 +121,12 @@ def main(grammar_args, j):
                 with open('failed_opt.tsv', 'a', encoding='utf-8') as g:
                     g.write(line + '\n')
     
-    logger.info(f'True entropy: {entropy}.')
+    print(f'True entropy: {entropy}.')
     ge = grammar.entropy().item()
-    logger.info(f'Grammar entropy: {ge}')
-    logger.info(f'Diff: {abs(ge - entropy)}')
+    print(f'Grammar entropy: {ge}')
+    print(f'Diff: {abs(ge - entropy)}')
     
-    logger.info(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...')
+    print(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...')
     train_data = dataset_type(
         grammar,
         num_seqs=NUM_SEQS_TRAIN,
@@ -141,7 +134,7 @@ def main(grammar_args, j):
         do_logging=False,
         data_dir=os.path.join(this_experiment_dir, 'train')
     )
-    logger.info(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...')
+    print(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...')
     val_data = dataset_type(
         grammar,
         num_seqs=NUM_SEQS_VAL,
@@ -179,45 +172,43 @@ def main(grammar_args, j):
     }
 
     if model_type == 'lstm':
-        logger.info(f'Training LSTM:')
-        logger.info(f'\tn_embd: {N_EMBD_LSTM}')
-        logger.info(f'\tn_hidden: {N_HIDDEN_LSTM}')
-        logger.info(f'\tn_layer: {N_LAYER_LSTM}')
-        logger.info(f'\tn_head: {N_HEAD}')
-        logger.info(f'\tn_positions: {MAX_LENGTH}')
-        logger.info(f'\tlr: {LR}')
-        logger.info(f'\twd: {WD}')
-        logger.info(f'\tmax_epochs: {MAX_EPOCHS}')
-        logger.info(f'\tlog_freq: {LOG_FREQ}')
-        logger.info(f'\teval_every: {EVAL_EVERY}')
+        print(f'Training LSTM:')
+        print(f'\tn_embd: {N_EMBD_LSTM}')
+        print(f'\tn_hidden: {N_HIDDEN_LSTM}')
+        print(f'\tn_layer: {N_LAYER_LSTM}')
+        print(f'\tn_head: {N_HEAD}')
+        print(f'\tn_positions: {MAX_LENGTH}')
+        print(f'\tlr: {LR}')
+        print(f'\twd: {WD}')
+        print(f'\tmax_epochs: {MAX_EPOCHS}')
+        print(f'\tlog_freq: {LOG_FREQ}')
+        print(f'\teval_every: {EVAL_EVERY}')
         train_model(
             grammar,
             train_data,
             val_data,
             hparams,
             this_experiment_dir = this_experiment_dir,
-            logger = logger,
             verbose = VERBOSE
         )
     elif model_type == 'trf':
-        logger.info(f'Training TRF:')
-        logger.info(f'\tn_embd: {N_EMBD_TRF}')
-        logger.info(f'\tn_hidden: {N_HIDDEN_TRF}')
-        logger.info(f'\tn_layer: {N_LAYER_TRF}')
-        logger.info(f'\tn_head: {N_HEAD}')
-        logger.info(f'\tn_positions: {MAX_LENGTH}')
-        logger.info(f'\tlr: {LR}')
-        logger.info(f'\twd: {WD}')
-        logger.info(f'\tmax_epochs: {MAX_EPOCHS}')
-        logger.info(f'\tlog_freq: {LOG_FREQ}')
-        logger.info(f'\teval_every: {EVAL_EVERY}')
+        print(f'Training TRF:')
+        print(f'\tn_embd: {N_EMBD_TRF}')
+        print(f'\tn_hidden: {N_HIDDEN_TRF}')
+        print(f'\tn_layer: {N_LAYER_TRF}')
+        print(f'\tn_head: {N_HEAD}')
+        print(f'\tn_positions: {MAX_LENGTH}')
+        print(f'\tlr: {LR}')
+        print(f'\twd: {WD}')
+        print(f'\tmax_epochs: {MAX_EPOCHS}')
+        print(f'\tlog_freq: {LOG_FREQ}')
+        print(f'\teval_every: {EVAL_EVERY}')
         train_model(
             grammar,
             train_data,
             val_data,
             hparams,
             this_experiment_dir = this_experiment_dir,
-            logger = logger,
             verbose = VERBOSE
         )
 

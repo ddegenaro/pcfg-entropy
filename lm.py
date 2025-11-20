@@ -1,7 +1,6 @@
 import os
 import json
 from typing import Union
-from logging import Logger
 
 from tqdm import tqdm
 import torch
@@ -23,8 +22,7 @@ def create_model_and_optimizer(
     n_positions: int,
     lr: int,
     wd: int,
-    model_type: str,
-    logger: Logger
+    model_type: str
 ) -> Union[tuple[LSTM, AdamW, int], tuple[GPT2LMHeadModel, AdamW, int]]:
     
     if model_type == 'trf':
@@ -56,7 +54,7 @@ def create_model_and_optimizer(
     )
 
     param_count = sum(p.numel() for p in model.parameters())
-    logger.info(f'Training {model_type} on {DEVICE} with {param_count:,} trainable parameters.')
+    print(f'Training {model_type} on {DEVICE} with {param_count:,} trainable parameters.')
 
     return (model, optimizer, param_count)
 
@@ -72,7 +70,6 @@ def train_epoch(
     val_data_loader: SequenceDataLoader,
     p_true: list[float],
     this_experiment_dir: str,
-    logger: Logger,
     verbose: bool,
     all_train_losses: list[float],
     all_train_tokens: list[int],
@@ -86,9 +83,9 @@ def train_epoch(
     running_total_train_loss = sum(l * t for l, t in zip(all_train_losses, all_train_tokens))
     running_total_train_tokens = sum(all_train_tokens)
 
-    logger.info('-' * 100)
-    logger.info(f'Begin training epoch {epoch}.')
-    logger.info('-' * 100)
+    print('-' * 100)
+    print(f'Begin training epoch {epoch+1}.')
+    print('-' * 100)
 
     step = len(train_data_loader) * epoch
 
@@ -122,8 +119,8 @@ def train_epoch(
         step += 1
 
         if step % log_freq == 0:
-            msg = f'Epoch: {epoch:03d} - Step: {step:05d} - Loss: {loss:.4f} - Avg/tok: {avg_loss:.4f}'
-            logger.info(msg)
+            msg = f'Epoch: {epoch+1:03d} - Step: {step:05d} - Loss: {loss:.4f} - Avg/tok: {avg_loss:.4f}'
+            print(msg)
 
         if step % eval_every == 0:
             ce = val_epoch(
@@ -132,7 +129,6 @@ def train_epoch(
                 step=step,
                 p_true=p_true,
                 this_experiment_dir=this_experiment_dir,
-                logger=logger,
                 verbose=verbose
             )
             
@@ -169,13 +165,12 @@ def val_epoch(
     step: int,
     p_true: list[float],
     this_experiment_dir: str,
-    logger: Logger,
     verbose: bool
 ):
 
-    logger.info('-' * 100)
-    logger.info(f'Begin eval after {step} steps.')
-    logger.info('-' * 100)
+    print('-' * 100)
+    print(f'Begin eval after {step} steps.')
+    print('-' * 100)
 
     rho, ce = both_metrics(
         val_data_loader=val_data_loader,
@@ -196,7 +191,6 @@ def train_model(
     val_data: SequenceDataset,
     hparams: dict,
     this_experiment_dir: str = '.',
-    logger: Logger = None,
     verbose: bool = False
 ):
     
@@ -209,11 +203,10 @@ def train_model(
         n_positions=hparams['n_positions'],
         lr=hparams['lr'],
         wd=hparams['wd'],
-        model_type=hparams['model_type'],
-        logger=logger
+        model_type=hparams['model_type']
     )
 
-    logger.info(f'Building train dataloader...')
+    print(f'Building train dataloader...')
     train_data_loader = SequenceDataLoader(
         ds=train_data,
         batch_size=hparams['batch_size'],
@@ -221,7 +214,7 @@ def train_model(
         max_length=hparams['n_positions']
     )
 
-    logger.info(f'Building val dataloader...')
+    print(f'Building val dataloader...')
     val_data_loader = SequenceDataLoader(
         ds=val_data,
         batch_size=hparams['batch_size'],
@@ -232,13 +225,16 @@ def train_model(
     hparams['param_count'] = param_count
 
     hparams_loc = os.path.join(this_experiment_dir, 'hparams.json')
-    logger.info(f'Writing hparams to {hparams_loc}')
+    print(f'Writing hparams to {hparams_loc}')
     with open(hparams_loc, 'w+', encoding='utf-8') as f:
         json.dump(hparams, f, indent=4)
 
-    logger.info(f'Computing p_true...')
+    print(f'Computing p_true...')
     if verbose:
-        p_true = [grammar.p_seq(seq).item() for seq in tqdm(val_data, total=len(val_data))]
+        p_true = [
+            grammar.p_seq(seq).item()
+            for seq in tqdm(val_data, total=len(val_data))
+        ]
     else:
         p_true = [grammar.p_seq(seq).item() for seq in val_data]
 
@@ -272,7 +268,6 @@ def train_model(
             val_data_loader=val_data_loader,
             p_true=p_true,
             this_experiment_dir=this_experiment_dir,
-            logger=logger,
             verbose=verbose,
             all_train_losses=all_train_losses,
             all_train_tokens=all_train_tokens,

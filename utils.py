@@ -492,6 +492,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             for _ in self.seq_gen:
                 pass
             
+        self.data_indices = list(range(num_seqs))
 
         self.m_local_entropies = {}
         self.n_gram_counts = {}
@@ -501,10 +502,29 @@ class SequenceDataset(torch.utils.data.Dataset):
         if self.seq_gen is None:
             return self.seq_list[idx]
         else:
-            return next(self.seq_gen)
+            if type(idx) == int:
+                if idx >= len(self.data_indices):
+                    raise IndexError
+                return Sequence(
+                    open(
+                        os.path.join(self.data_dir, f'{idx}.txt'),
+                        'r', encoding='utf-8'
+                    ).read()
+                )
+            return [
+                Sequence(
+                    open(
+                        os.path.join(self.data_dir, f'{i}.txt'),
+                        'r', encoding='utf-8'
+                    ).read()
+                ) for i in self.data_indices[idx]
+            ]
     
     def __len__(self):
-        return self.num_seqs
+        if self.seq_gen is None:
+            return len(self.seq_list)
+        else:
+            return len(self.data_indices)
     
     def seqs(self):
         if self.seq_list is not None:
