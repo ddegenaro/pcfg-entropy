@@ -11,7 +11,7 @@ from pcfg import PCFG, PCFGDataset
 from lm import train_model
 
 # constant over all training runs
-DEBUG = False
+DEBUG = True
 PATIENCE = 5 # number of evals to wait before breaking if no appreciable change
 TOLERANCE = 1e-3 # proportion of loss decrease equivalent to "no appreciable change"
 VERBOSE = False

@@ -397,18 +397,35 @@ class Grammar(nn.Module):
         data_dir: str
     ):
         
-        os.makedirs(data_dir, exist_ok=True)
-        
-        with ThreadPoolExecutor(max_workers=max_threads) as executor:
-            futures = [executor.submit(self._generate_one, max_length) for _ in range(num_seqs)]
-            iterable = tqdm(as_completed(futures), total=num_seqs) if do_logging else as_completed(futures)
-            for i, future in enumerate(iterable):
-                with open(os.path.join(data_dir, f'{i}.txt'), 'w+', encoding='utf-8') as f:
-                    f.write(str(future.result()))
-                
-        for fp in sorted(os.listdir(data_dir), key=lambda x: int(x.split('.')[0])):
-            with open(os.path.join(data_dir, fp), 'r', encoding='utf-8') as f:
-                yield Sequence(f.read())
+        if os.path.exists(data_dir):
+            flag = True
+            count = 0
+            for fp in sorted(os.listdir(data_dir), key=lambda x: int(x.split('.')[0])):
+                with open(os.path.join(data_dir, fp), 'r', encoding='utf-8') as f:
+                    if len(f.read()) > max_length:
+                        flag = False
+                        break
+                    count += 1
+            if count != num_seqs:
+                flag = False
+            if flag:
+                for fp in sorted(os.listdir(data_dir), key=lambda x: int(x.split('.')[0])):
+                    with open(os.path.join(data_dir, fp), 'r', encoding='utf-8') as f:
+                        yield Sequence(f.read())
+        else:
+            
+            os.makedirs(data_dir)
+            
+            with ThreadPoolExecutor(max_workers=max_threads) as executor:
+                futures = [executor.submit(self._generate_one, max_length) for _ in range(num_seqs)]
+                iterable = tqdm(as_completed(futures), total=num_seqs) if do_logging else as_completed(futures)
+                for i, future in enumerate(iterable):
+                    with open(os.path.join(data_dir, f'{i}.txt'), 'w+', encoding='utf-8') as f:
+                        f.write(str(future.result()))
+                    
+            for fp in sorted(os.listdir(data_dir), key=lambda x: int(x.split('.')[0])):
+                with open(os.path.join(data_dir, fp), 'r', encoding='utf-8') as f:
+                    yield Sequence(f.read())
 
     def _get_param_copy(self) -> dict:
         """
