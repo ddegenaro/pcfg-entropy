@@ -361,7 +361,7 @@ class Grammar(nn.Module):
         max_threads: int = None,
         do_logging: bool = False,
         fp: str = None
-    ) -> Union[list[Sequence], Generator[Sequence]]:
+    ) -> Union[list[Sequence], Generator]:
         
         if max_length is None or max_length <= 0:
             max_length = torch.inf
