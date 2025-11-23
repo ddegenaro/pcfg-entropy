@@ -313,7 +313,7 @@ class PFSA(Grammar):
                         break
                     
                     losses.append(loss_val)
-                    if len(losses) > 5 and abs(losses[-1] - losses[-2]) < tol:
+                    if len(losses) > 10 and abs(losses[-1] - losses[-2]) < tol:
                         if losses[-1] >= tol:
                             print('Loss not changing. Optimization did not converge!')
                             flag = False
