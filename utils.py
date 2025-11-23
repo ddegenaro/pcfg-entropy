@@ -1,4 +1,5 @@
 import os
+from time import time
 from random import Random
 from typing import Union, Iterable, Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -346,7 +347,7 @@ class Grammar(nn.Module):
 
     def to(self, device: Union[str, torch.device]):
         for param in self.parameters():
-            param.to(device)
+            param.data = param.data.to(device)
         self.device = device
         if device == 'cpu' or device == torch.device('cpu'):
             self.generator = self.cpu_generator
@@ -673,12 +674,16 @@ class SequenceDataset(torch.utils.data.Dataset):
         h = self.grammar.entropy().item() / self.grammar.estimated_mls()
 
         # TODO: this is probably not right, though it seems pretty good
+        start = time()
         while True:
             addl_entropy = self.m_local_entropy(order=order)
             if h > addl_entropy:
                 break
             E += addl_entropy - h
             order += 1
+            print(f'\tOrder: {order}')
+            if time() - start > 300:
+                break
 
         return E
 

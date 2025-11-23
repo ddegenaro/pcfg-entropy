@@ -1,17 +1,25 @@
 import os
-import json
+import shutil
 from argparse import ArgumentParser
 from itertools import product
 from collections import OrderedDict
-import logging
+
+import torch
 
 from ngram import NGram, NGramDataset
 from pfsa import PFSA, PFSADataset
 from pcfg import PCFG, PCFGDataset
 from lm import train_model
 
+if torch.cuda.is_available():
+    DEVICE = 'cuda'
+elif torch.backends.mps.is_available():
+    DEVICE = 'mps'
+else:
+    DEVICE = 'cpu'
+
 # constant over all training runs
-DEBUG = False
+DEBUG = True
 PATIENCE = 5 # number of evals to wait before breaking if no appreciable change
 TOLERANCE = 1e-3 # proportion of loss decrease equivalent to "no appreciable change"
 VERBOSE = False
@@ -37,16 +45,15 @@ N_LAYER_LSTM = 6 if not DEBUG else 3
 N_LAYER_TRF = 4 if not DEBUG else 3
 
 # formalism-specific
-ngram_orders = [1, 2, 3, 4, 5]
-pfsa_nums_states = [4, 8, 16, 32, 64]
-pcfg_nums_nts = [4, 8, 16, 32, 64]
+ngram_orders = [3, 4, 5]
+pfsa_nums_states = [16, 32, 64]
+pcfg_nums_nts = [16, 32, 64]
 
 # constant over formalisms
 default_grid = OrderedDict({
     'seed': [0],
-    'num_symbols': [100, 1000, 10_000, 100_000],
-    'entropies': [8., 16., 32., 64.],
-    'model_types': ['lstm', 'trf']
+    'num_symbols': [1000, 10_000, 100_000],
+    'entropies': [16., 32., 64.]
 })
 
 ngram_grid = default_grid.copy()
@@ -60,32 +67,17 @@ pcfg_grid['num_non_terminals'] = pcfg_nums_nts
 
 def main(grammar_args, j):
     
-    to_skip = set()
-    
     if not os.path.exists('experiments'):
         this_experiment = '1'
     else:
-        for x in os.listdir('experiments'):
-            d = os.path.join('experiments', x)
-            if len(os.listdir(d)) == 0:
-                os.rmdir(d)
-            else:
-                json_data = json.load(
-                    open(os.path.join(d, 'hparams.json'), 'r', encoding='utf-8')
-                )
-                to_skip.add((
-                    json_data['grammar_str'],
-                    json_data['model_type'],
-                    json_data['grammar_target_entropy']
-                ))
-        experiments = [int(x.replace('_test', '')) for x in os.listdir('experiments')]
+        experiments = [int(x.replace('_test', '').replace('_lstm', '').replace('_trf', '')) for x in os.listdir('experiments')]
         this_experiment = str(max(experiments) + 1)
     if DEBUG:
         this_experiment += '_test'
     this_experiment_dir = os.path.join('experiments', this_experiment)
     os.makedirs(this_experiment_dir)
 
-    seed, num_symbols, entropy, model_type, formalism_arg = grammar_args
+    seed, num_symbols, entropy, formalism_arg = grammar_args
 
     if j == 0:
         grammar = NGram(
@@ -105,11 +97,9 @@ def main(grammar_args, j):
             num_symbols=num_symbols,
             num_non_terminals=formalism_arg
         )
-        
-    if (grammar.file_name_convention, model_type, entropy) in to_skip:
-        return
 
-    print(f'Optimizing {grammar} to have entropy {entropy}...')
+    grammar = grammar.to(DEVICE)
+    print(f'Optimizing {grammar} on {DEVICE} to have entropy {entropy}...')
     if not grammar.optimize(H_t=entropy, do_logging=True):
         print(f'Optimization failed. Consider retrying.')
         if not os.path.exists('failed_opt.tsv'):
@@ -120,8 +110,9 @@ def main(grammar_args, j):
                 f.close()
                 with open('failed_opt.tsv', 'a', encoding='utf-8') as g:
                     g.write(line + '\n')
+    grammar = grammar.to('cpu')
     
-    print(f'True entropy: {entropy}.')
+    print(f'Target entropy: {entropy}.')
     ge = grammar.entropy().item()
     print(f'Grammar entropy: {ge}')
     print(f'Diff: {abs(ge - entropy)}')
@@ -142,7 +133,12 @@ def main(grammar_args, j):
         do_logging=False,
         data_dir=os.path.join(this_experiment_dir, 'val')
     )
-    print(f'Computing data statistics...')
+    
+    print(f'Computing train excess entropy...')
+    train_ee = train_data.excess_entropy()
+    print(f'Computing val excess entropy...')
+    val_ee = val_data.excess_entropy()
+    print(f'Computing basic stats...')
     hparams = {
         'grammar_type': grammar.formalism,
         'grammar_seed': grammar.seed,
@@ -152,12 +148,12 @@ def main(grammar_args, j):
         'grammar_target_entropy': entropy,
         'grammar_actual_entropy': grammar.entropy().item(),
         'train_data_stats': train_data.basic_stats(),
-        'train_data_ee': train_data.excess_entropy(),
+        'train_data_ee': train_ee,
         'val_data_stats': val_data.basic_stats(),
-        'val_data_ee': val_data.excess_entropy(), 
-        'n_embd': N_EMBD_LSTM if model_type == 'lstm' else N_EMBD_TRF,
-        'n_hidden': N_HIDDEN_LSTM if model_type == 'lstm' else N_LAYER_TRF,
-        'n_layer': N_LAYER_LSTM if model_type == 'lstm' else N_LAYER_TRF,
+        'val_data_ee': val_ee, 
+        'n_embd': N_EMBD_LSTM,
+        'n_hidden': N_HIDDEN_LSTM,
+        'n_layer': N_LAYER_LSTM,
         'n_head': N_HEAD,
         'n_positions': MAX_LENGTH,
         'lr': LR,
@@ -166,12 +162,12 @@ def main(grammar_args, j):
         'max_epochs': MAX_EPOCHS,
         'eval_every': EVAL_EVERY,
         'log_freq': LOG_FREQ,
-        'model_type': model_type,
+        'model_type': 'lstm',
         'patience': PATIENCE,
         'tolerance': TOLERANCE
     }
 
-    if model_type == 'lstm':
+    if not os.path.exists(os.path.join(this_experiment_dir, 'lstm')):
         print(f'Training LSTM:')
         print(f'\tn_embd: {N_EMBD_LSTM}')
         print(f'\tn_hidden: {N_HIDDEN_LSTM}')
@@ -188,10 +184,16 @@ def main(grammar_args, j):
             train_data,
             val_data,
             hparams,
-            this_experiment_dir = this_experiment_dir,
+            this_experiment_dir = os.path.join(this_experiment_dir, 'lstm'),
             verbose = VERBOSE
         )
-    elif model_type == 'trf':
+    
+    if not os.path.exists(os.path.join(this_experiment_dir, 'trf')):
+        hparams['model_type'] = 'trf'
+        hparams['n_embd'] = N_EMBD_TRF
+        hparams['n_hidden'] = N_HIDDEN_TRF
+        hparams['n_layer'] = N_LAYER_TRF
+        
         print(f'Training TRF:')
         print(f'\tn_embd: {N_EMBD_TRF}')
         print(f'\tn_hidden: {N_HIDDEN_TRF}')
@@ -208,9 +210,14 @@ def main(grammar_args, j):
             train_data,
             val_data,
             hparams,
-            this_experiment_dir = this_experiment_dir,
+            this_experiment_dir = os.path.join(this_experiment_dir, 'trf'),
             verbose = VERBOSE
         )
+    
+    print(f'Deleting train data...')
+    shutil.rmtree(os.path.join(this_experiment_dir, 'train'))
+    print(f'Deleting val data...')
+    shutil.rmtree(os.path.join(this_experiment_dir, 'val'))
 
 if __name__ == '__main__':
     parser = ArgumentParser()

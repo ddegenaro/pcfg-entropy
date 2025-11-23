@@ -309,17 +309,18 @@ class PFSA(Grammar):
                         best_optimization_transitions = self.transitions.clone().detach()
                     
                     if loss_val < tol:
+                        print('Converged.')
                         break
                     
                     losses.append(loss_val)
-                    if len(losses) > 1 and abs(losses[-1] - losses[-2]) < tol:
+                    if len(losses) > 5 and abs(losses[-1] - losses[-2]) < tol:
                         if losses[-1] >= tol:
-                            Warning('Optimization did not converge!')
+                            print('Loss not changing. Optimization did not converge!')
                             flag = False
                         break
                 
                 if ((time() - start) > max_time) or (i > max_iter):
-                    Warning('Optimization did not converge!')
+                    print('Time exceeded. Optimization did not converge!')
                     flag = False
                     break
             

@@ -1,6 +1,5 @@
 from time import time
 from typing import Union
-import logging
 
 import torch
 from torch import nn

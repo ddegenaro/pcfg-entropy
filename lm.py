@@ -78,6 +78,8 @@ def train_epoch(
     tol: float
 ):
     
+    os.makedirs
+    
     model.train()
 
     running_total_train_loss = sum(l * t for l, t in zip(all_train_losses, all_train_tokens))
@@ -193,6 +195,8 @@ def train_model(
     this_experiment_dir: str = '.',
     verbose: bool = False
 ):
+    
+    os.makedirs(this_experiment_dir, exist_ok=True)
     
     model, optimizer, param_count = create_model_and_optimizer(
         grammar,
