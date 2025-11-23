@@ -99,7 +99,7 @@ class PFSA(Grammar):
             },
             fp
         )
-        print(f'Saved pi and transitions to {fp} successfully.')
+        print(f'Saved pi and transitions to {fp} successfully.', flush=True)
 
     def p_seq(self, seq: Union[str, Sequence, list[int]]) -> torch.Tensor: # GENERATED WITH CLAUDE
 
@@ -220,8 +220,8 @@ class PFSA(Grammar):
         DH = torch.tensor(H_t, dtype=torch.float32, requires_grad=False, device=self.device)
         criterion = nn.MSELoss()
         if do_logging:
-            print(f'criterion: {criterion.__class__.__name__}')
-            print(f'Testing {K} random initializations...')
+            print(f'criterion: {criterion.__class__.__name__}', flush=True)
+            print(f'Testing {K} random initializations...', flush=True)
 
         with torch.no_grad():
             # Normalize current
@@ -265,11 +265,11 @@ class PFSA(Grammar):
                     best_pi = candidate_pi.clone()
                     best_transitions = candidate_trans.clone()
                     if do_logging:
-                        print(f'New best at initialization {k}: loss = {best_loss:.6f}')
+                        print(f'New best at initialization {k}: loss = {best_loss:.6f}', flush=True)
 
         if do_logging:
-            print(f'Best initialization loss: {best_loss:.6f}')
-            print('Starting optimization...')
+            print(f'Best initialization loss: {best_loss:.6f}', flush=True)
+            print('Starting optimization...', flush=True)
         
         self.pi = nn.Parameter(best_pi)
         self.transitions = nn.Parameter(best_transitions)
@@ -302,25 +302,25 @@ class PFSA(Grammar):
                 with torch.no_grad():
                     loss_val = loss.item()
                     if do_logging:
-                        print(f'loss: {loss_val:.4}', end='\r')
+                        print(f'loss: {loss_val:.4}', end='\r', flush=True)
                     if loss_val < best_optimization_loss:
                         best_optimization_loss = loss_val
                         best_optimization_pi = self.pi.clone().detach()
                         best_optimization_transitions = self.transitions.clone().detach()
                     
                     if loss_val < tol:
-                        print('Converged.')
+                        print('Converged.', flush=True)
                         break
                     
                     losses.append(loss_val)
                     if len(losses) > 10 and abs(losses[-1] - losses[-2]) < tol:
                         if losses[-1] >= tol:
-                            print('Loss not changing. Optimization did not converge!')
+                            print('Loss not changing. Optimization did not converge!', flush=True)
                             flag = False
                         break
                 
                 if ((time() - start) > max_time) or (i > max_iter):
-                    print('Time exceeded. Optimization did not converge!')
+                    print('Time exceeded. Optimization did not converge!', flush=True)
                     flag = False
                     break
             

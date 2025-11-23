@@ -102,9 +102,9 @@ if __name__ == "__main__":
                 num_non_terminals=formalism_arg
             )
 
-        print(f'Optimizing {grammar} to have entropy {entropy}...')
+        print(f'Optimizing {grammar} to have entropy {entropy}...', flush=True)
         if not grammar.optimize(H_t=entropy, do_logging=True):
-            print(f'Optimization failed. Consider retrying.')
+            print(f'Optimization failed. Consider retrying.', flush=True)
             if not os.path.exists('failed.tsv'):
                 open('failed.tsv', 'w+', encoding='utf-8')
             with open('failed.tsv', 'r', encoding='utf-8') as f:
@@ -115,27 +115,27 @@ if __name__ == "__main__":
                         g.write(line + '\n')
             continue
         
-        print(f'True entropy: {entropy}.')
+        print(f'True entropy: {entropy}.', flush=True)
         ge = grammar.entropy().item()
-        print(f'Grammar entropy: {ge}')
-        print(f'Diff: {abs(ge - entropy)}')
+        print(f'Grammar entropy: {ge}', flush=True)
+        print(f'Diff: {abs(ge - entropy)}', flush=True)
         
-        print(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...')
+        print(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...', flush=True)
         train_data = dataset_type(grammar, num_seqs=NUM_SEQS_TRAIN, max_length=MAX_LENGTH)
-        print(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...')
+        print(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...', flush=True)
         val_data = dataset_type(grammar, num_seqs=NUM_SEQS_VAL, max_length=MAX_LENGTH)
 
-        print(f'Training LSTM:')
-        print(f'\tn_embd: {N_EMBD_LSTM}')
-        print(f'\tn_hidden: {N_HIDDEN_LSTM}')
-        print(f'\tn_layer: {N_LAYER_LSTM}')
-        print(f'\tn_head: {N_HEAD}')
-        print(f'\tn_positions: {MAX_LENGTH}')
-        print(f'\tlr: {LR}')
-        print(f'\twd: {WD}')
-        print(f'\tmax_epochs: {MAX_EPOCHS}')
-        print(f'\tlog_freq: {LOG_FREQ}')
-        print(f'\teval_every: {EVAL_EVERY}')
+        print(f'Training LSTM:', flush=True)
+        print(f'\tn_embd: {N_EMBD_LSTM}', flush=True)
+        print(f'\tn_hidden: {N_HIDDEN_LSTM}', flush=True)
+        print(f'\tn_layer: {N_LAYER_LSTM}', flush=True)
+        print(f'\tn_head: {N_HEAD}', flush=True)
+        print(f'\tn_positions: {MAX_LENGTH}', flush=True)
+        print(f'\tlr: {LR}', flush=True)
+        print(f'\twd: {WD}', flush=True)
+        print(f'\tmax_epochs: {MAX_EPOCHS}', flush=True)
+        print(f'\tlog_freq: {LOG_FREQ}', flush=True)
+        print(f'\teval_every: {EVAL_EVERY}', flush=True)
         train_model(
             grammar,
             train_data,
@@ -154,17 +154,17 @@ if __name__ == "__main__":
             is_test_run=True
         )
 
-        print(f'Training TRF:')
-        print(f'\tn_embd: {N_EMBD_TRF}')
-        print(f'\tn_hidden: {N_HIDDEN_TRF}')
-        print(f'\tn_layer: {N_LAYER_TRF}')
-        print(f'\tn_head: {N_HEAD}')
-        print(f'\tn_positions: {MAX_LENGTH}')
-        print(f'\tlr: {LR}')
-        print(f'\twd: {WD}')
-        print(f'\tmax_epochs: {MAX_EPOCHS}')
-        print(f'\tlog_freq: {LOG_FREQ}')
-        print(f'\teval_every: {EVAL_EVERY}')
+        print(f'Training TRF:', flush=True)
+        print(f'\tn_embd: {N_EMBD_TRF}', flush=True)
+        print(f'\tn_hidden: {N_HIDDEN_TRF}', flush=True)
+        print(f'\tn_layer: {N_LAYER_TRF}', flush=True)
+        print(f'\tn_head: {N_HEAD}', flush=True)
+        print(f'\tn_positions: {MAX_LENGTH}', flush=True)
+        print(f'\tlr: {LR}', flush=True)
+        print(f'\twd: {WD}', flush=True)
+        print(f'\tmax_epochs: {MAX_EPOCHS}', flush=True)
+        print(f'\tlog_freq: {LOG_FREQ}', flush=True)
+        print(f'\teval_every: {EVAL_EVERY}', flush=True)
         train_model(
             grammar,
             train_data,

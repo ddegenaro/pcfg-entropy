@@ -354,7 +354,7 @@ class Grammar(nn.Module):
         else:
             self.generator = self.gpu_generator
             if self.generator is None:
-                print(f'No GPU generator available - does this machine have a GPU?')
+                print(f'No GPU generator available - does this machine have a GPU?', flush=True)
         return self
                     
     def generate(
@@ -681,7 +681,7 @@ class SequenceDataset(torch.utils.data.Dataset):
                 break
             E += addl_entropy - h
             order += 1
-            print(f'\tOrder: {order}')
+            print(f'\tOrder: {order}', flush=True)
             if time() - start > 300:
                 break
 

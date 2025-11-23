@@ -99,9 +99,9 @@ def main(grammar_args, j):
         )
 
     grammar = grammar.to(DEVICE)
-    print(f'Optimizing {grammar} on {DEVICE} to have entropy {entropy}...')
+    print(f'Optimizing {grammar} on {DEVICE} to have entropy {entropy}...', flush=True)
     if not grammar.optimize(H_t=entropy, do_logging=True):
-        print(f'Optimization failed. Consider retrying.')
+        print(f'Optimization failed. Consider retrying.', flush=True)
         if not os.path.exists('failed_opt.tsv'):
             open('failed_opt.tsv', 'w+', encoding='utf-8')
         with open('failed_opt.tsv', 'r', encoding='utf-8') as f:
@@ -112,12 +112,12 @@ def main(grammar_args, j):
                     g.write(line + '\n')
     grammar = grammar.to('cpu')
     
-    print(f'Target entropy: {entropy}.')
+    print(f'Target entropy: {entropy}.', flush=True)
     ge = grammar.entropy().item()
-    print(f'Grammar entropy: {ge}')
-    print(f'Diff: {abs(ge - entropy)}')
+    print(f'Grammar entropy: {ge}', flush=True)
+    print(f'Diff: {abs(ge - entropy)}', flush=True)
     
-    print(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...')
+    print(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...', flush=True)
     train_data = dataset_type(
         grammar,
         num_seqs=NUM_SEQS_TRAIN,
@@ -125,7 +125,7 @@ def main(grammar_args, j):
         do_logging=False,
         data_dir=os.path.join(this_experiment_dir, 'train')
     )
-    print(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...')
+    print(f'Generating {NUM_SEQS_VAL:,} sequences with {grammar}...', flush=True)
     val_data = dataset_type(
         grammar,
         num_seqs=NUM_SEQS_VAL,
@@ -134,11 +134,11 @@ def main(grammar_args, j):
         data_dir=os.path.join(this_experiment_dir, 'val')
     )
     
-    print(f'Computing train excess entropy...')
+    print(f'Computing train excess entropy...', flush=True)
     train_ee = train_data.excess_entropy()
-    print(f'Computing val excess entropy...')
+    print(f'Computing val excess entropy...', flush=True)
     val_ee = val_data.excess_entropy()
-    print(f'Computing basic stats...')
+    print(f'Computing basic stats...', flush=True)
     hparams = {
         'grammar_type': grammar.formalism,
         'grammar_seed': grammar.seed,
@@ -168,17 +168,17 @@ def main(grammar_args, j):
     }
 
     if not os.path.exists(os.path.join(this_experiment_dir, 'lstm')):
-        print(f'Training LSTM:')
-        print(f'\tn_embd: {N_EMBD_LSTM}')
-        print(f'\tn_hidden: {N_HIDDEN_LSTM}')
-        print(f'\tn_layer: {N_LAYER_LSTM}')
-        print(f'\tn_head: {N_HEAD}')
-        print(f'\tn_positions: {MAX_LENGTH}')
-        print(f'\tlr: {LR}')
-        print(f'\twd: {WD}')
-        print(f'\tmax_epochs: {MAX_EPOCHS}')
-        print(f'\tlog_freq: {LOG_FREQ}')
-        print(f'\teval_every: {EVAL_EVERY}')
+        print(f'Training LSTM:', flush=True)
+        print(f'\tn_embd: {N_EMBD_LSTM}', flush=True)
+        print(f'\tn_hidden: {N_HIDDEN_LSTM}', flush=True)
+        print(f'\tn_layer: {N_LAYER_LSTM}', flush=True)
+        print(f'\tn_head: {N_HEAD}', flush=True)
+        print(f'\tn_positions: {MAX_LENGTH}', flush=True)
+        print(f'\tlr: {LR}', flush=True)
+        print(f'\twd: {WD}', flush=True)
+        print(f'\tmax_epochs: {MAX_EPOCHS}', flush=True)
+        print(f'\tlog_freq: {LOG_FREQ}', flush=True)
+        print(f'\teval_every: {EVAL_EVERY}', flush=True)
         train_model(
             grammar,
             train_data,
@@ -194,17 +194,17 @@ def main(grammar_args, j):
         hparams['n_hidden'] = N_HIDDEN_TRF
         hparams['n_layer'] = N_LAYER_TRF
         
-        print(f'Training TRF:')
-        print(f'\tn_embd: {N_EMBD_TRF}')
-        print(f'\tn_hidden: {N_HIDDEN_TRF}')
-        print(f'\tn_layer: {N_LAYER_TRF}')
-        print(f'\tn_head: {N_HEAD}')
-        print(f'\tn_positions: {MAX_LENGTH}')
-        print(f'\tlr: {LR}')
-        print(f'\twd: {WD}')
-        print(f'\tmax_epochs: {MAX_EPOCHS}')
-        print(f'\tlog_freq: {LOG_FREQ}')
-        print(f'\teval_every: {EVAL_EVERY}')
+        print(f'Training TRF:', flush=True)
+        print(f'\tn_embd: {N_EMBD_TRF}', flush=True)
+        print(f'\tn_hidden: {N_HIDDEN_TRF}', flush=True)
+        print(f'\tn_layer: {N_LAYER_TRF}', flush=True)
+        print(f'\tn_head: {N_HEAD}', flush=True)
+        print(f'\tn_positions: {MAX_LENGTH}', flush=True)
+        print(f'\tlr: {LR}', flush=True)
+        print(f'\twd: {WD}', flush=True)
+        print(f'\tmax_epochs: {MAX_EPOCHS}', flush=True)
+        print(f'\tlog_freq: {LOG_FREQ}', flush=True)
+        print(f'\teval_every: {EVAL_EVERY}', flush=True)
         train_model(
             grammar,
             train_data,
@@ -214,9 +214,9 @@ def main(grammar_args, j):
             verbose = VERBOSE
         )
     
-    print(f'Deleting train data...')
+    print(f'Deleting train data...', flush=True)
     shutil.rmtree(os.path.join(this_experiment_dir, 'train'))
-    print(f'Deleting val data...')
+    print(f'Deleting val data...', flush=True)
     shutil.rmtree(os.path.join(this_experiment_dir, 'val'))
 
 if __name__ == '__main__':

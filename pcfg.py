@@ -64,7 +64,7 @@ class PCFG(Grammar):
         super().validate()
         assert len(self.N) == len(self.N_ordered) == self.num_non_terminals == len(self.NUS) - 1
         if not torch.allclose(self.rules.sum(1), torch.tensor(1., device=self.device)):
-            print(f'Warning: probability distributions not summing to 1.')
+            print(f'Warning: probability distributions not summing to 1.', flush=True)
 
     def init_weights(self):
         # row and column indices indicate probability of that rule
@@ -86,7 +86,7 @@ class PCFG(Grammar):
     
     def save(self, fp: str):
         torch.save(self.rules.cpu(), fp)
-        print(f'Saved rules to {fp} successfully.')
+        print(f'Saved rules to {fp} successfully.', flush=True)
 
     def p_seq(self, seq: Union[Sequence, Tree]) -> torch.Tensor:
         val = torch.tensor(1., device=self.device)
@@ -153,15 +153,15 @@ class PCFG(Grammar):
             True if optimization succeeded
         """
         if do_logging:
-            print('-----------------------------------------------------')
+            print('-----------------------------------------------------', flush=True)
 
         losses = []
         
         DH = torch.tensor(H_t, dtype=torch.float32, requires_grad=False, device=self.device)
         criterion = nn.MSELoss()
         if do_logging:
-            print(f'criterion: {criterion.__class__.__name__}')
-            print(f'Testing {K} random initializations...')
+            print(f'criterion: {criterion.__class__.__name__}', flush=True)
+            print(f'Testing {K} random initializations...', flush=True)
 
         with torch.no_grad():
             # Compute initial loss with current rules
@@ -190,11 +190,11 @@ class PCFG(Grammar):
                     best_loss = candidate_loss
                     best_rules = candidate_rules.clone()  # Store raw values
                     if do_logging:
-                        print(f'New best at initialization {k}: loss = {best_loss:.6f}')
+                        print(f'New best at initialization {k}: loss = {best_loss:.6f}', flush=True)
 
         if do_logging:
-            print(f'Best initialization loss: {best_loss:.6f}')
-            print('Starting optimization...')
+            print(f'Best initialization loss: {best_loss:.6f}', flush=True)
+            print('Starting optimization...', flush=True)
         
         self.rules = nn.Parameter(best_rules)
         best_optimization_loss = float('inf')
@@ -223,7 +223,7 @@ class PCFG(Grammar):
                     loss_val = loss.item()
                     
                     if do_logging:
-                        print(f'loss: {loss_val:.4}', end='\r')
+                        print(f'loss: {loss_val:.4}', end='\r', flush=True)
                     if loss_val < best_optimization_loss:
                         best_optimization_loss = loss_val
                         best_optimization_rules = self.rules.clone().detach()
@@ -253,20 +253,20 @@ class PCFG(Grammar):
         self.rules.data = self.rules.data.softmax(1)
 
         rho = self._char_matrix_rho()
-        print(f'Spectral radius: {rho}.', end=' ')
+        print(f'Spectral radius: {rho}.', end=' ', flush=True)
 
         if rho < 1.0:
-            print('Done.')
+            print('Done.', flush=True)
             for param in self.parameters():
                 param.requires_grad = False
             return True
         elif max_retries == 0:
-            print('No more retries.')
+            print('No more retries.', flush=True)
             for param in self.parameters():
                 param.requires_grad = False
             return False
         else:
-            print('Retrying...')
+            print('Retrying...', flush=True)
             return self.optimize(
                 H_t,
                 do_logging,

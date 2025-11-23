@@ -54,7 +54,7 @@ def create_model_and_optimizer(
     )
 
     param_count = sum(p.numel() for p in model.parameters())
-    print(f'Training {model_type} on {DEVICE} with {param_count:,} trainable parameters.')
+    print(f'Training {model_type} on {DEVICE} with {param_count:,} trainable parameters.', flush=True)
 
     return (model, optimizer, param_count)
 
@@ -85,9 +85,9 @@ def train_epoch(
     running_total_train_loss = sum(l * t for l, t in zip(all_train_losses, all_train_tokens))
     running_total_train_tokens = sum(all_train_tokens)
 
-    print('-' * 100)
-    print(f'Begin training epoch {epoch+1}.')
-    print('-' * 100)
+    print('-' * 100, flush=True)
+    print(f'Begin training epoch {epoch+1}.', flush=True)
+    print('-' * 100, flush=True)
 
     step = len(train_data_loader) * epoch
 
@@ -122,7 +122,7 @@ def train_epoch(
 
         if step % log_freq == 0:
             msg = f'Epoch: {epoch+1:03d} - Step: {step:05d} - Loss: {loss:.4f} - Avg/tok: {avg_loss:.4f}'
-            print(msg)
+            print(msg, flush=True)
 
         if step % eval_every == 0:
             ce = val_epoch(
@@ -170,9 +170,9 @@ def val_epoch(
     verbose: bool
 ):
 
-    print('-' * 100)
-    print(f'Begin eval after {step} steps.')
-    print('-' * 100)
+    print('-' * 100, flush=True)
+    print(f'Begin eval after {step} steps.', flush=True)
+    print('-' * 100, flush=True)
 
     rho, ce = both_metrics(
         val_data_loader=val_data_loader,
@@ -210,7 +210,7 @@ def train_model(
         model_type=hparams['model_type']
     )
 
-    print(f'Building train dataloader...')
+    print(f'Building train dataloader...', flush=True)
     train_data_loader = SequenceDataLoader(
         ds=train_data,
         batch_size=hparams['batch_size'],
@@ -218,7 +218,7 @@ def train_model(
         max_length=hparams['n_positions']
     )
 
-    print(f'Building val dataloader...')
+    print(f'Building val dataloader...', flush=True)
     val_data_loader = SequenceDataLoader(
         ds=val_data,
         batch_size=hparams['batch_size'],
@@ -229,11 +229,11 @@ def train_model(
     hparams['param_count'] = param_count
 
     hparams_loc = os.path.join(this_experiment_dir, 'hparams.json')
-    print(f'Writing hparams to {hparams_loc}')
+    print(f'Writing hparams to {hparams_loc}', flush=True)
     with open(hparams_loc, 'w+', encoding='utf-8') as f:
         json.dump(hparams, f, indent=4)
 
-    print(f'Computing p_true...')
+    print(f'Computing p_true...', flush=True)
     if verbose:
         p_true = [
             grammar.p_seq(seq).item()
