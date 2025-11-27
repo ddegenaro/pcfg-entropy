@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 from argparse import ArgumentParser
 from itertools import product
@@ -46,14 +47,14 @@ N_LAYER_TRF = 4 if not DEBUG else 3
 
 # formalism-specific
 ngram_orders = [3, 4, 5]
-pfsa_nums_states = [16, 32, 64]
-pcfg_nums_nts = [16, 32, 64]
+pfsa_nums_states = [32, 64, 128]
+pcfg_nums_nts = [32, 64, 128]
 
 # constant over formalisms
 default_grid = OrderedDict({
     'seed': [0],
-    'num_symbols': [1000, 10_000, 100_000],
-    'entropies': [16., 32., 64.]
+    'num_symbols': [10_000],
+    'entropies': [8.]
 })
 
 ngram_grid = default_grid.copy()
@@ -64,6 +65,29 @@ pfsa_grid['num_states'] = pfsa_nums_states
 
 pcfg_grid = default_grid.copy()
 pcfg_grid['num_non_terminals'] = pcfg_nums_nts
+
+def already_done():
+    os.makedirs('experiments', exist_ok=True)
+    experiments = [
+        os.path.join('experiments', x)
+        for x in os.listdir('experiments')
+    ]
+    
+    exists_already = set()
+    
+    for experiment in experiments:
+        
+        lstm_hparams = os.path.join(experiment, 'lstm', 'hparams.json')
+        if os.path.exists(lstm_hparams):
+            lstm_grammar_str = json.load(open(lstm_hparams, 'r', encoding='utf-8'))['grammar_str']
+            exists_already.add(('lstm', lstm_grammar_str))
+            
+        trf_hparams = os.path.join(experiment, 'trf', 'hparams.json')
+        if os.path.exists(trf_hparams):
+            trf_grammar_str = json.load(open(trf_hparams, 'r', encoding='utf-8'))['grammar_str']
+            exists_already.add(('trf', trf_grammar_str))
+            
+    return exists_already
 
 def main(grammar_args, j):
     
@@ -97,6 +121,21 @@ def main(grammar_args, j):
             num_symbols=num_symbols,
             num_non_terminals=formalism_arg
         )
+    
+    finished = already_done()
+    
+    if ('lstm', grammar.file_name_convention) in finished:
+        do_lstm = False
+    else:
+        do_lstm = True
+        
+    if ('trf', grammar.file_name_convention) in finished:
+        do_trf = False
+    else:
+        do_trf = True
+        
+    if not do_lstm and not do_trf:
+        return
 
     grammar = grammar.to(DEVICE)
     print(f'Optimizing {grammar} on {DEVICE} to have entropy {entropy}...', flush=True)
@@ -167,7 +206,7 @@ def main(grammar_args, j):
         'tolerance': TOLERANCE
     }
 
-    if not os.path.exists(os.path.join(this_experiment_dir, 'lstm')):
+    if do_lstm:
         print(f'Training LSTM:', flush=True)
         print(f'\tn_embd: {N_EMBD_LSTM}', flush=True)
         print(f'\tn_hidden: {N_HIDDEN_LSTM}', flush=True)
@@ -188,7 +227,7 @@ def main(grammar_args, j):
             verbose = VERBOSE
         )
     
-    if not os.path.exists(os.path.join(this_experiment_dir, 'trf')):
+    if do_trf:
         hparams['model_type'] = 'trf'
         hparams['n_embd'] = N_EMBD_TRF
         hparams['n_hidden'] = N_HIDDEN_TRF
@@ -214,10 +253,14 @@ def main(grammar_args, j):
             verbose = VERBOSE
         )
     
-    print(f'Deleting train data...', flush=True)
-    shutil.rmtree(os.path.join(this_experiment_dir, 'train'))
-    print(f'Deleting val data...', flush=True)
-    shutil.rmtree(os.path.join(this_experiment_dir, 'val'))
+    if os.path.exists(os.path.join(this_experiment_dir, 'train')):
+        print(f'Deleting train data...', flush=True)
+        shutil.rmtree(os.path.join(this_experiment_dir, 'train'))
+    if os.path.exists(os.path.join(this_experiment_dir, 'val')):
+        print(f'Deleting val data...', flush=True)
+        shutil.rmtree(os.path.join(this_experiment_dir, 'val'))
+    
+    del grammar, train_data, val_data
 
 if __name__ == '__main__':
     parser = ArgumentParser()
@@ -227,15 +270,8 @@ if __name__ == '__main__':
         required=True,
         help='0 for n-grams, 1 for PFSAs, 2 for PCFGs.'
     )
-    parser.add_argument(
-        '--max_threads',
-        type=int,
-        default=8,
-        help='Number of threads to run experiments in parallel.'
-    )
     args = parser.parse_args()
     j = args.j
-    max_threads = args.max_threads
 
     if j == 0:
         dataset_type = NGramDataset

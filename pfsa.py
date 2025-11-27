@@ -320,7 +320,7 @@ class PFSA(Grammar):
                         break
                 
                 if ((time() - start) > max_time) or (i > max_iter):
-                    print('Time exceeded. Optimization did not converge!', flush=True)
+                    print('Time or iterations exceeded. Optimization did not converge!', flush=True)
                     flag = False
                     break
             
