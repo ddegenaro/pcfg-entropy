@@ -32,8 +32,8 @@ LR = 1e-3
 WD = 1e-5
 LOG_FREQ = 100 if not DEBUG else 1
 EVAL_EVERY = 100 if not DEBUG else 1
-NUM_SEQS_TRAIN = 128_000 if not DEBUG else 256
-NUM_SEQS_VAL = 128_000 if not DEBUG else 256
+NUM_SEQS_TRAIN = 32_000 if not DEBUG else 256
+NUM_SEQS_VAL = 32_000 if not DEBUG else 256
 
 # model-specific
 N_EMBD_LSTM = 128 if not DEBUG else 64
