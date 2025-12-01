@@ -53,7 +53,8 @@ pcfg_nums_nts = [2, 4, 8, 16, 32, 64]
 # constant over formalisms
 default_grid = OrderedDict({
     'seed': [0],
-    'num_symbols': [10, 100, 1_000, 10_000]
+    'num_symbols': [10, 100, 1_000, 10_000],
+    'entropy': [0]
 })
 
 ngram_grid = default_grid.copy()
