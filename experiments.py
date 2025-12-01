@@ -30,8 +30,8 @@ MAX_LENGTH = 128
 MAX_EPOCHS = 20 if not DEBUG else 20
 LR = 1e-3
 WD = 1e-5
-LOG_FREQ = 100 if not DEBUG else 1
-EVAL_EVERY = 100 if not DEBUG else 1
+LOG_FREQ = 100 if not DEBUG else 16
+EVAL_EVERY = 100 if not DEBUG else 64
 NUM_SEQS_TRAIN = 32_000 if not DEBUG else 256
 NUM_SEQS_VAL = 32_000 if not DEBUG else 256
 
@@ -47,14 +47,13 @@ N_LAYER_TRF = 4 if not DEBUG else 3
 
 # formalism-specific
 ngram_orders = [3, 4, 5]
-pfsa_nums_states = [32, 64, 128]
-pcfg_nums_nts = [32, 64, 128]
+pfsa_nums_states = [2, 4, 8, 16, 32, 64]
+pcfg_nums_nts = [2, 4, 8, 16, 32, 64]
 
 # constant over formalisms
 default_grid = OrderedDict({
     'seed': [0],
-    'num_symbols': [10_000],
-    'entropies': [8.]
+    'num_symbols': [10, 100, 1_000, 10_000]
 })
 
 ngram_grid = default_grid.copy()
@@ -137,24 +136,24 @@ def main(grammar_args, j):
     if not do_lstm and not do_trf:
         return
 
-    grammar = grammar.to(DEVICE)
-    print(f'Optimizing {grammar} on {DEVICE} to have entropy {entropy}...', flush=True)
-    if not grammar.optimize(H_t=entropy, do_logging=True):
-        print(f'Optimization failed. Consider retrying.', flush=True)
-        if not os.path.exists('failed_opt.tsv'):
-            open('failed_opt.tsv', 'w+', encoding='utf-8')
-        with open('failed_opt.tsv', 'r', encoding='utf-8') as f:
-            line = f'{grammar}\t{entropy}'
-            if line not in f.read().splitlines():
-                f.close()
-                with open('failed_opt.tsv', 'a', encoding='utf-8') as g:
-                    g.write(line + '\n')
-    grammar = grammar.to('cpu')
+    # grammar = grammar.to(DEVICE)
+    # print(f'Optimizing {grammar} on {grammar.device} to have entropy {entropy}...', flush=True)
+    # if not grammar.optimize(H_t=entropy, do_logging=True):
+    #     print(f'Optimization failed. Consider retrying.', flush=True)
+    #     if not os.path.exists('failed_opt.tsv'):
+    #         open('failed_opt.tsv', 'w+', encoding='utf-8')
+    #     with open('failed_opt.tsv', 'r', encoding='utf-8') as f:
+    #         line = f'{grammar}\t{entropy}'
+    #         if line not in f.read().splitlines():
+    #             f.close()
+    #             with open('failed_opt.tsv', 'a', encoding='utf-8') as g:
+    #                 g.write(line + '\n')
+    # grammar = grammar.to('cpu')
     
-    print(f'Target entropy: {entropy}.', flush=True)
+    # print(f'Target entropy: {entropy}.', flush=True)
     ge = grammar.entropy().item()
     print(f'Grammar entropy: {ge}', flush=True)
-    print(f'Diff: {abs(ge - entropy)}', flush=True)
+    # print(f'Diff: {abs(ge - entropy)}', flush=True)
     
     print(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...', flush=True)
     train_data = dataset_type(
@@ -184,7 +183,7 @@ def main(grammar_args, j):
         'grammar_num_symbols': grammar.num_symbols,
         'grammar_str': grammar.file_name_convention,
         'grammar_formalism_arg': formalism_arg,
-        'grammar_target_entropy': entropy,
+        # 'grammar_target_entropy': entropy,
         'grammar_actual_entropy': grammar.entropy().item(),
         'train_data_stats': train_data.basic_stats(),
         'train_data_ee': train_ee,

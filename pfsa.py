@@ -180,23 +180,14 @@ class PFSA(Grammar):
         # Compute stationary distribution via power iteration
         pi = self._compute_stationary_distribution_pfsa(P_non_absorbing_normalized)
         
-        # Compute conditional entropy for each state
-        # Each state has a transition matrix of shape (num_symbols, num_states + 1)
-        # H(state i) = -Σ_k P(k | state i) * log P(k | state i)
-        # where k ranges over all (symbol, next_state) pairs
+        # Compute conditional entropy for each state (VECTORIZED)
+        # self.transitions shape: (num_states, num_symbols, num_states + 1)
+        # Flatten last two dimensions: (num_states, num_symbols * (num_states + 1))
+        transitions_flattened = self.transitions.reshape(self.num_states, -1)
         
-        # Flatten transitions for each state and compute entropy
-        # self.transitions[i] has shape (num_symbols, num_states + 1)
-        # Flatten to (num_symbols * (num_states + 1),)
-        
-        conditional_entropies = torch.zeros(self.num_states, device=self.device)
-        
-        for i in range(self.num_states):
-            state_transitions = self.transitions[i]  # shape: (num_symbols, num_states + 1)
-            flattened = state_transitions.flatten()  # shape: (num_symbols * (num_states + 1),)
-            
-            # Compute entropy of this flattened distribution
-            conditional_entropies[i] = -(flattened * torch.log(flattened + 1e-10)).sum()
+        # Compute entropy: -Σ p * log(p) for each state's flattened distribution
+        # Shape: (num_states,)
+        conditional_entropies = -(transitions_flattened * torch.log(transitions_flattened + 1e-10)).sum(dim=1)
         
         # Total entropy: weight each state's conditional entropy by its stationary probability
         total_entropy = (pi * conditional_entropies).sum()
@@ -208,8 +199,8 @@ class PFSA(Grammar):
         H_t: float,
         do_logging: bool = True,
         tol: float = 1e-6, 
-        lr: float = 0.01,
-        log_freq: int = 1000,
+        lr: float = 1e-3,
+        log_freq: int = 100,
         max_iter: int = 100_000,
         max_time: float = 300.0,
         K: int = 1000,
@@ -291,8 +282,15 @@ class PFSA(Grammar):
             self.transitions.data = self.transitions.flatten(start_dim=1).softmax(1).reshape(
                 self.num_states, self.num_symbols, self.num_states + 1)
             
-            loss = criterion(self.entropy(), DH)
+            # loss = criterion(self.entropy(), DH)
+            
+            loss = criterion(
+                self.entropy() / (self.num_symbols * (self.num_states + 1)),
+                DH / (self.num_symbols * (self.num_states + 1))
+            )
+            
             loss.backward()
+            torch.nn.utils.clip_grad_norm_([self.pi, self.transitions], max_norm=1.0)
             
             self.pi.data = pi_backup
             self.transitions.data = trans_backup
@@ -302,7 +300,7 @@ class PFSA(Grammar):
                 with torch.no_grad():
                     loss_val = loss.item()
                     if do_logging:
-                        print(f'loss: {loss_val:.4}', end='\r', flush=True)
+                        print(f'step {i} - loss: {loss_val:.4}', end='\r', flush=True)
                     if loss_val < best_optimization_loss:
                         best_optimization_loss = loss_val
                         best_optimization_pi = self.pi.clone().detach()
@@ -313,11 +311,11 @@ class PFSA(Grammar):
                         break
                     
                     losses.append(loss_val)
-                    if len(losses) > 10 and abs(losses[-1] - losses[-2]) < tol:
-                        if losses[-1] >= tol:
-                            print('Loss not changing. Optimization did not converge!', flush=True)
-                            flag = False
-                        break
+                    # if len(losses) > 10 and abs(losses[-1] - losses[-2]) < tol:
+                    #     if losses[-1] >= tol:
+                    #         print('Loss not changing. Optimization did not converge!', flush=True)
+                    #         flag = False
+                    #     break
                 
                 if ((time() - start) > max_time) or (i > max_iter):
                     print('Time or iterations exceeded. Optimization did not converge!', flush=True)
