@@ -68,7 +68,7 @@ def train_epoch(
     log_freq: int,
     eval_every: int,
     val_data_loader: SequenceDataLoader,
-    p_true: list[float],
+    log_p_true_by_len: dict[int, list[float]],
     this_experiment_dir: str,
     verbose: bool,
     all_train_losses: list[float],
@@ -129,12 +129,14 @@ def train_epoch(
                 val_data_loader=val_data_loader,
                 model=model,
                 step=step,
-                p_true=p_true,
+                log_p_true_by_len=log_p_true_by_len,
                 this_experiment_dir=this_experiment_dir,
                 verbose=verbose
             )
             
-            with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'a', encoding='utf-8') as f:
+            with open(
+                os.path.join(this_experiment_dir, 'train_losses.tsv'), 'a', encoding='utf-8'
+            ) as f:
                 for i in range(len(train_losses)):
                     f.write(f'{train_losses[i]}\t{train_tokens[i]}\n')
                     
@@ -144,28 +146,29 @@ def train_epoch(
             train_losses = []
             train_tokens = []
             
-            if len(last_k_ces) == patience:
-                del last_k_ces[0]
-            last_k_ces.append(ce)
-            
-            if len(last_k_ces) == patience:
-                flags = []
-                for i in range(1, len(last_k_ces)):
-                    if last_k_ces[i-1] - last_k_ces[i] < last_k_ces[i-1] * tol:
-                        flags.append(True)
-                    else:
-                        flags.append(False)
-                        
-                if all(flags):
-                    return 'end'
-
-
+            if round(step / eval_every) < 50:
+                continue
+            else:
+                if len(last_k_ces) == patience:
+                    del last_k_ces[0]
+                last_k_ces.append(ce)
+                
+                if len(last_k_ces) == patience:
+                    flags = []
+                    for i in range(1, len(last_k_ces)):
+                        if last_k_ces[i-1] - last_k_ces[i] < last_k_ces[i-1] * tol:
+                            flags.append(True)
+                        else:
+                            flags.append(False)
+                            
+                    if all(flags):
+                        return 'end'
 
 def val_epoch(
     val_data_loader: SequenceDataLoader,
     model: torch.nn.Module,
     step: int,
-    p_true: list[float],
+    log_p_true_by_len: dict[int, list[float]],
     this_experiment_dir: str,
     verbose: bool
 ):
@@ -174,16 +177,20 @@ def val_epoch(
     print(f'Begin eval after {step} steps.', flush=True)
     print('-' * 100, flush=True)
 
-    rho, ce = both_metrics(
+    seq_lens, rho_mean, rhos, pvals, ce = both_metrics(
         val_data_loader=val_data_loader,
         model=model,
-        p_true=p_true,
+        log_p_true_by_len=log_p_true_by_len,
         device=DEVICE,
         verbose=verbose
     )
     
     with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'a', encoding='utf-8') as f:
-        f.write(f'{step}\t{rho.statistic}\t{rho.pvalue}\t{ce}\n')
+        f.write(f'{step}\t{rho_mean}\t{sum(pvals.values())/len(pvals)}\t{ce}\n')
+    
+    with open(os.path.join(this_experiment_dir, 'length_wise_metrics.tsv'), 'a', encoding='utf-8') as f:
+        for seq_len in seq_lens:
+            f.write(f'{step}\t{seq_len}\t{rhos[seq_len]}\t{pvals[seq_len]}\n')
         
     return ce
 
@@ -233,20 +240,39 @@ def train_model(
     with open(hparams_loc, 'w+', encoding='utf-8') as f:
         json.dump(hparams, f, indent=4)
 
-    print(f'Computing p_true...', flush=True)
+    print(f'Computing log_p_true_by_len...', flush=True)
     if verbose:
-        p_true = [
-            grammar.p_seq(seq).item()
+        log_p_true = [
+            grammar.p_seq(seq).log().item()
             for seq in tqdm(val_data, total=len(val_data))
         ]
+        lens = [
+            len(seq) for seq in tqdm(val_data, total=len(val_data))
+        ]
+        log_p_true_by_len = {}
+        for i in tqdm(range(len(lens)), total=len(lens)):
+            if lens[i] not in log_p_true_by_len:
+                log_p_true_by_len[lens[i]] = [log_p_true[i]]
+            else:
+                log_p_true_by_len[lens[i]].append(log_p_true[i])
     else:
-        p_true = [grammar.p_seq(seq).item() for seq in val_data]
+        log_p_true = [grammar.p_seq(seq).item() for seq in val_data]
+        lens = [len(seq) for seq in val_data]
+        log_p_true_by_len = {}
+        for i in range(len(lens)):
+            if lens[i] not in log_p_true_by_len:
+                log_p_true_by_len[lens[i]] = [log_p_true[i]]
+            else:
+                log_p_true_by_len[lens[i]].append(log_p_true[i])
 
     with open(os.path.join(this_experiment_dir, 'train_losses.tsv'), 'w+', encoding='utf-8') as f:
         f.write('avg_loss\ttokens\n')
 
     with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'w+', encoding='utf-8') as f:
         f.write('step\trho\trho_pval\tce\n')
+        
+    with open(os.path.join(this_experiment_dir, 'length_wise_metrics.tsv'), 'w+', encoding='utf-8') as f:
+        f.write(f'step\tseq_len\trho\tpval\n')
         
     all_train_losses = []
     all_train_tokens = []
@@ -270,7 +296,7 @@ def train_model(
             log_freq=hparams['log_freq'],
             eval_every=hparams['eval_every'], # evaluate every X steps
             val_data_loader=val_data_loader,
-            p_true=p_true,
+            log_p_true_by_len=log_p_true_by_len,
             this_experiment_dir=this_experiment_dir,
             verbose=verbose,
             all_train_losses=all_train_losses,

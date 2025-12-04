@@ -53,7 +53,7 @@ pcfg_nums_nts = [2, 4, 8, 16, 32, 64]
 # constant over formalisms
 default_grid = OrderedDict({
     'seed': [0],
-    'num_symbols': [10, 100, 1_000, 10_000],
+    'num_symbols': [1_000],
     'entropy': [0]
 })
 
@@ -92,6 +92,8 @@ def already_done():
 def main(grammar_args, j):
     
     if not os.path.exists('experiments'):
+        this_experiment = '1'
+    elif len(os.listdir('experiments')) == 0:
         this_experiment = '1'
     else:
         experiments = [int(x.replace('_test', '').replace('_lstm', '').replace('_trf', '')) for x in os.listdir('experiments')]
