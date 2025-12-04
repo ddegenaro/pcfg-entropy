@@ -1,6 +1,6 @@
 from typing import Union
-
 from math import isnan
+
 from tqdm import tqdm
 import torch
 import torch.nn.functional as F

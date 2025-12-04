@@ -75,7 +75,8 @@ def train_epoch(
     all_train_tokens: list[int],
     last_k_ces: list[float],
     patience: int,
-    tol: float
+    tol: float,
+    min_evals: int
 ):
     
     os.makedirs
@@ -146,7 +147,7 @@ def train_epoch(
             train_losses = []
             train_tokens = []
             
-            if round(step / eval_every) < 50:
+            if round(step / eval_every) < min_evals:
                 continue
             else:
                 if len(last_k_ces) == patience:
@@ -303,7 +304,8 @@ def train_model(
             all_train_tokens=all_train_tokens,
             last_k_ces=last_k_ces,
             patience=hparams['patience'],
-            tol=hparams['tolerance']
+            tol=hparams['tolerance'],
+            min_evals=hparams['min_evals']
         )
         
         if signal == 'end':

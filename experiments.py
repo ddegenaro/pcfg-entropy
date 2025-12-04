@@ -23,6 +23,7 @@ else:
 DEBUG = False
 PATIENCE = 5 # number of evals to wait before breaking if no appreciable change
 TOLERANCE = 1e-3 # proportion of loss decrease equivalent to "no appreciable change"
+MIN_EVALS = 200
 VERBOSE = False
 BATCH_SIZE = 32
 N_HEAD = 4 if not DEBUG else 2 # ignored by LSTM
@@ -52,8 +53,8 @@ pcfg_nums_nts = [2, 4, 8, 16, 32, 64]
 
 # constant over formalisms
 default_grid = OrderedDict({
-    'seed': [0],
-    'num_symbols': [1_000],
+    'seed': [0, 1, 2],
+    'num_symbols': [1_000, 5_000],
     'entropy': [0]
 })
 
@@ -205,7 +206,8 @@ def main(grammar_args, j):
         'log_freq': LOG_FREQ,
         'model_type': 'lstm',
         'patience': PATIENCE,
-        'tolerance': TOLERANCE
+        'tolerance': TOLERANCE,
+        'min_evals': MIN_EVALS
     }
 
     if do_lstm:
