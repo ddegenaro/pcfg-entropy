@@ -73,7 +73,7 @@ def train_epoch(
     verbose: bool,
     all_train_losses: list[float],
     all_train_tokens: list[int],
-    last_k_ces: list[float],
+    last_k_rhos: list[float],
     patience: int,
     tol: float,
     min_evals: int
@@ -126,7 +126,7 @@ def train_epoch(
             print(msg, flush=True)
 
         if step % eval_every == 0:
-            ce = val_epoch(
+            rho_mean = val_epoch(
                 val_data_loader=val_data_loader,
                 model=model,
                 step=step,
@@ -150,14 +150,14 @@ def train_epoch(
             if round(step / eval_every) < min_evals:
                 continue
             else:
-                if len(last_k_ces) == patience:
-                    del last_k_ces[0]
-                last_k_ces.append(ce)
+                if len(last_k_rhos) == patience:
+                    del last_k_rhos[0]
+                last_k_rhos.append(rho_mean)
                 
-                if len(last_k_ces) == patience:
+                if len(last_k_rhos) == patience:
                     flags = []
-                    for i in range(1, len(last_k_ces)):
-                        if last_k_ces[i-1] - last_k_ces[i] < last_k_ces[i-1] * tol:
+                    for i in range(1, len(last_k_rhos)):
+                        if last_k_rhos[i-1] - last_k_rhos[i] < last_k_rhos[i-1] * tol:
                             flags.append(True)
                         else:
                             flags.append(False)
@@ -193,7 +193,7 @@ def val_epoch(
         for seq_len in seq_lens:
             f.write(f'{step}\t{seq_len}\t{rhos[seq_len]}\t{pvals[seq_len]}\n')
         
-    return ce
+    return rho_mean
 
 def train_model(
     grammar: Grammar,
@@ -278,7 +278,7 @@ def train_model(
     all_train_losses = []
     all_train_tokens = []
     
-    last_k_ces = []
+    last_k_rhos = []
 
     for epoch in range(hparams['max_epochs']):
 
@@ -302,7 +302,7 @@ def train_model(
             verbose=verbose,
             all_train_losses=all_train_losses,
             all_train_tokens=all_train_tokens,
-            last_k_ces=last_k_ces,
+            last_k_rhos=last_k_rhos,
             patience=hparams['patience'],
             tol=hparams['tolerance'],
             min_evals=hparams['min_evals']
