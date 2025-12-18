@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name="entropy"
 #SBATCH --nodes=1
-#SBATCH --partition=base
+#SBATCH --partition=spot
 #SBATCH --output="slurms/%x.o%j"
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1

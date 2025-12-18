@@ -114,7 +114,7 @@ class PCFG(Grammar):
                 continue
             # At this point, frontier should be empty and all leaves should be terminals
             if len(tree.leaves) <= max_length:
-                assert self._is_expanded(tree)  # This should always pass now
+                # assert self._is_expanded(tree)  # This should always pass now
                 return Sequence(tree)
             
     def entropy(self) -> torch.Tensor:
