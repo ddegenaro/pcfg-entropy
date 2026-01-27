@@ -88,7 +88,7 @@ class PCFG(Grammar):
         torch.save(self.rules.cpu(), fp)
         print(f'Saved rules to {fp} successfully.', flush=True)
 
-    def p_seq(self, seq: Union[Sequence, Tree]) -> torch.Tensor:
+    def p_tree(self, seq: Union[Sequence, Tree]) -> torch.Tensor:
         val = torch.tensor(1., device=self.device)
 
         if type(seq) == Sequence:
@@ -105,6 +105,17 @@ class PCFG(Grammar):
             else:
                 val *= self._p_rule(node.data, node.left.data) # just L
         return val
+    
+    def p_seq(self, seq: Union[str, Sequence, list[int]]) -> torch.Tensor:
+        # print('SEQ', seq)
+        if type(seq) != list:
+            # print('IF')
+            w = self.tokenize(seq)
+        else:
+            # print('ELSE')
+            w = seq
+        # print('HERE IT IS', w)
+        return self.cky(w)[0, len(w)-1, 0]
     
     def _generate_one(self, max_length: int) -> Sequence:
 

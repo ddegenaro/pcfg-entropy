@@ -49,7 +49,8 @@ N_LAYER_TRF = 4 if not DEBUG else 3
 # formalism-specific
 ngram_orders = [3, 4, 5]
 pfsa_nums_states = [2, 4, 8, 16, 32, 64]
-pcfg_nums_nts = [2, 4, 8, 16, 32, 64]
+# pcfg_nums_nts = [2, 4, 8, 16, 32, 64]
+pcfg_nums_nts = [8, 16]
 
 # constant over formalisms
 default_grid = OrderedDict({
