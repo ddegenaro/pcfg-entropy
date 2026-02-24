@@ -8,3 +8,4 @@ experiments/
 failed_opt.tsv
 failed.tsv
 run_job.sh
+*.zip
