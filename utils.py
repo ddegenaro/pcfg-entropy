@@ -218,6 +218,7 @@ class Grammar(nn.Module):
         if from_file is not None:
             self.load(from_file)
         else:
+            self.var = var
             self.init_weights()
 
         self.eos_id = self.num_symbols + 1
@@ -226,8 +227,6 @@ class Grammar(nn.Module):
             chr(x + chr_ord_offset) for x in range(self.num_symbols)
         ]
         self.Sigma = set(self.symbols_ordered)
-        
-        self.var = var
 
     def validate(self):
         assert len(self.Sigma) == len(self.symbols_ordered) == self.num_symbols
