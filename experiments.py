@@ -35,6 +35,7 @@ LOG_FREQ = 100 if not DEBUG else 16
 EVAL_EVERY = 100 if not DEBUG else 64
 NUM_SEQS_TRAIN = 32_000 if not DEBUG else 256
 NUM_SEQS_VAL = 32_000 if not DEBUG else 256
+VAR = 4.0 # was 1.0 in all runs <= 160
 
 # model-specific
 N_EMBD_LSTM = 128 if not DEBUG else 64
@@ -111,19 +112,22 @@ def main(grammar_args, j):
         grammar = NGram(
             seed=seed,
             num_symbols=num_symbols,
-            order=formalism_arg
+            order=formalism_arg,
+            var=VAR
         )
     elif j == 1:
         grammar = PFSA(
             seed=seed,
             num_symbols=num_symbols,
-            num_states=formalism_arg
+            num_states=formalism_arg,
+            var=VAR
         )
     elif j == 2:
         grammar = PCFG(
             seed=seed,
             num_symbols=num_symbols,
-            num_non_terminals=formalism_arg
+            num_non_terminals=formalism_arg,
+            var=VAR
         )
     
     finished = already_done()
@@ -208,7 +212,8 @@ def main(grammar_args, j):
         'model_type': 'lstm',
         'patience': PATIENCE,
         'tolerance': TOLERANCE,
-        'min_evals': MIN_EVALS
+        'min_evals': MIN_EVALS,
+        'var': VAR
     }
 
     if do_lstm:
@@ -223,6 +228,7 @@ def main(grammar_args, j):
         print(f'\tmax_epochs: {MAX_EPOCHS}', flush=True)
         print(f'\tlog_freq: {LOG_FREQ}', flush=True)
         print(f'\teval_every: {EVAL_EVERY}', flush=True)
+        print(f'\tgrammar params variance: {VAR}', flush=True)
         train_model(
             grammar,
             train_data,
@@ -249,6 +255,7 @@ def main(grammar_args, j):
         print(f'\tmax_epochs: {MAX_EPOCHS}', flush=True)
         print(f'\tlog_freq: {LOG_FREQ}', flush=True)
         print(f'\teval_every: {EVAL_EVERY}', flush=True)
+        print(f'\tgrammar params variance: {VAR}', flush=True)
         train_model(
             grammar,
             train_data,

@@ -16,7 +16,8 @@ class PCFG(Grammar):
         from_file: str = None,
         num_symbols: int = 10,
         num_non_terminals: int = 10,
-        do_logging: bool = False
+        do_logging: bool = False,
+        var: float = 1.0
     ):
         
         """
@@ -43,7 +44,8 @@ class PCFG(Grammar):
             device,
             chr_ord_offset,
             from_file,
-            num_symbols
+            num_symbols,
+            var
         )
 
         # non-terminals are integers, terminals are utf-8 characters
@@ -69,11 +71,11 @@ class PCFG(Grammar):
     def init_weights(self):
         # row and column indices indicate probability of that rule
         # + 1 to num_non_terminals due to start symbol
-        self.rules = nn.Parameter(torch.randn(
+        self.rules = nn.Parameter((self.var * torch.randn(
             (self.num_non_terminals + 1, self.num_symbols + self.num_non_terminals ** 2),
             device=self.device,
             generator=self.generator
-        ).softmax(1))
+        )).softmax(1))
 
         super().init_weights() # turn off gradients
 
@@ -185,7 +187,7 @@ class PCFG(Grammar):
             # Try K random initializations
             for k in range(K):
                 # Generate random tensor of same shape (raw values)
-                candidate_rules = torch.randn(
+                candidate_rules = self.var * torch.randn(
                     self.rules.shape,
                     device=self.device,
                     generator=self.generator

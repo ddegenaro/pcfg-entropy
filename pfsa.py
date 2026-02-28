@@ -15,7 +15,8 @@ class PFSA(Grammar):
         chr_ord_offset: int = 97,
         from_file: str = None,
         num_symbols: int = 10,
-        num_states: int = 10
+        num_states: int = 10,
+        var: float = 1.0
     ):
         
         """
@@ -40,7 +41,8 @@ class PFSA(Grammar):
             device,
             chr_ord_offset,
             from_file,
-            num_symbols
+            num_symbols,
+            var
         )
 
         # formalism-specific data to keep track of, computed last
@@ -67,18 +69,18 @@ class PFSA(Grammar):
     def init_weights(self):
 
         # self.pi[ord('a') - self.chr_ord_offset] = p(start with 'a')
-        self.pi = nn.Parameter(torch.randn(
+        self.pi = nn.Parameter((self.var * torch.randn(
             (self.num_states,),
             device=self.device,
             generator=self.generator
-        ).softmax(0))
+        )).softmax(0))
 
         # self.transitions[ord('a') - self.chr_ord_offset, i, j] = p(transition from state i to state j by emitting 'a')
-        self.transitions = nn.Parameter(torch.randn(
+        self.transitions = nn.Parameter((self.var * torch.randn(
             (self.num_states, self.num_symbols, self.num_states + 1), # +1 for accept state
             device=self.device,
             generator=self.generator
-        ).flatten(start_dim=1).softmax(1).reshape(self.num_states, self.num_symbols, self.num_states + 1))
+        )).flatten(start_dim=1).softmax(1).reshape(self.num_states, self.num_symbols, self.num_states + 1))
 
         super().init_weights() # turn off gradients
 
@@ -232,12 +234,12 @@ class PFSA(Grammar):
             
             # Try K random initializations
             for k in range(K):
-                candidate_pi = torch.randn(
+                candidate_pi = self.var * torch.randn(
                     self.pi.shape,
                     device=self.device,
                     generator=self.generator
                 )
-                candidate_trans = torch.randn(
+                candidate_trans = self.var * torch.randn(
                     self.transitions.shape,
                     device=self.device,
                     generator=self.generator

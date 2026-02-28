@@ -174,7 +174,8 @@ class Grammar(nn.Module):
         device: Union[str, torch.device] = 'cpu',
         chr_ord_offset: int = 97,
         from_file: str = None,
-        num_symbols: int = 10
+        num_symbols: int = 10,
+        var: float = 1.0
     ):
         
         """
@@ -225,6 +226,8 @@ class Grammar(nn.Module):
             chr(x + chr_ord_offset) for x in range(self.num_symbols)
         ]
         self.Sigma = set(self.symbols_ordered)
+        
+        self.var = var
 
     def validate(self):
         assert len(self.Sigma) == len(self.symbols_ordered) == self.num_symbols

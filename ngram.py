@@ -15,7 +15,8 @@ class NGram(Grammar):
         chr_ord_offset: int = 97,
         from_file: str = None,
         num_symbols: int = 10,
-        order: int = 5
+        order: int = 5,
+        var: float = 1.0
     ):
         
         """
@@ -43,7 +44,8 @@ class NGram(Grammar):
             device,
             chr_ord_offset,
             from_file,
-            num_symbols
+            num_symbols,
+            var
         )
         
         self.file_name_convention = f'ngram_seed_{self.seed}_symbols_{self.num_symbols}_order_{self.order}'
@@ -72,28 +74,28 @@ class NGram(Grammar):
     def init_weights(self):
         self.probs: nn.ParameterDict[int, nn.Parameter] = nn.ParameterDict()
         if self.order == 1:
-            self.probs['0'] = nn.Parameter(torch.randn( # unigrams no matter the order
+            self.probs['0'] = nn.Parameter((self.var * torch.randn( # unigrams no matter the order
                 (self.num_symbols + 1,), # add 1 for stop
                 device=self.device,
                 generator=self.generator
-            ).softmax(0))
+            )).softmax(0))
         else:
-            self.probs['0'] = nn.Parameter(torch.randn( # unigrams no matter the order
+            self.probs['0'] = nn.Parameter((self.var * torch.randn( # unigrams no matter the order
                 (self.num_symbols,), # don't add 1 for stop - we don't stop with unigram
                 device=self.device,
                 generator=self.generator
-            ).softmax(0))
+            )).softmax(0))
             for i in range(1, self.order - 1): # i = 1...n-1 for n-grams
-                self.probs[str(i)] = nn.Parameter(torch.randn(
+                self.probs[str(i)] = nn.Parameter((self.var * torch.randn(
                     (self.num_symbols ** i, self.num_symbols), # all possible contexts of length i -> any symbol
                     device=self.device,
                     generator=self.generator
-                ).softmax(1))
-            self.probs[str(self.order - 1)] = nn.Parameter(torch.randn(
+                )).softmax(1))
+            self.probs[str(self.order - 1)] = nn.Parameter((self.var * torch.randn(
                 (self.num_symbols ** (self.order - 1), self.num_symbols + 1), # for context of length n-1, +1 because we might stop
                 device=self.device,
                 generator=self.generator
-            ).softmax(1))
+            )).softmax(1))
 
         super().init_weights() # turn off gradients
 
@@ -274,7 +276,7 @@ class NGram(Grammar):
             for k in range(K):
                 candidate_probs = {}
                 for i in range(self.order):
-                    candidate_probs[str(i)] = torch.randn(
+                    candidate_probs[str(i)] = self.var * torch.randn(
                         self.probs[str(i)].shape,
                         device=self.device,
                         generator=self.generator
