@@ -55,7 +55,7 @@ class PCFG(Grammar):
         self.N = set(self.N_ordered)
         self.NUS = self.N.union(set([self.S]))
         
-        self.file_name_convention = f'pcfg_seed_{self.seed}_symbols_{self.num_symbols}_nts_{self.num_non_terminals}'
+        self.file_name_convention = f'pcfg_seed_{self.seed}_symbols_{self.num_symbols}_nts_{self.num_non_terminals}_var_{self.var}'
 
         self.validate()
 

@@ -51,7 +51,7 @@ class PFSA(Grammar):
         ]
         self.Q = set(self.Q_ordered)
         
-        self.file_name_convention = f'pfsa_seed_{self.seed}_symbols_{self.num_symbols}_states_{self.num_states}'
+        self.file_name_convention = f'pfsa_seed_{self.seed}_symbols_{self.num_symbols}_states_{self.num_states}_var_{self.var}'
 
         self.validate()
 

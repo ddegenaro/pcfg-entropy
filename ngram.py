@@ -48,7 +48,7 @@ class NGram(Grammar):
             var
         )
         
-        self.file_name_convention = f'ngram_seed_{self.seed}_symbols_{self.num_symbols}_order_{self.order}'
+        self.file_name_convention = f'ngram_seed_{self.seed}_symbols_{self.num_symbols}_order_{self.order}_var{self.var}'
 
         self.validate()
 
