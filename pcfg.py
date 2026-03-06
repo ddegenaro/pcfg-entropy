@@ -1,5 +1,7 @@
 from time import time
 from typing import Union
+from collections import Counter
+import math
 
 import torch
 from torch import nn
@@ -471,7 +473,80 @@ class PCFG(Grammar):
         return torch.inverse(
             torch.eye(self.num_non_terminals + 1, device=self.device) - self._P()
         )
+    
+    def _good_turing_from_counts(self, counts: Counter, n: int) -> float:
+        """
+        Good–Turing–style entropy estimate given global counts
+        and total sample size n.
+        """
+        if n == 0:
+            return 0.0
 
+        freq_of_freq = Counter(counts.values())
+        n1 = freq_of_freq.get(1, 0)
+        p0 = n1 / n  # total unseen mass
+
+        H_seen = 0.0
+        for c in counts.values():
+            Nc = freq_of_freq[c]
+            Nc1 = freq_of_freq.get(c + 1, 0)
+
+            if Nc1 > 0:
+                c_star = (c + 1) * Nc1 / Nc
+            else:
+                c_star = c
+
+            p_star = c_star / n
+            if p_star > 0.0:
+                H_seen -= p_star * math.log(p_star)
+
+        H_unseen = 0.0
+        if p0 > 0.0:
+            H_unseen = p0 * math.log(1.0 / p0)
+
+        return H_seen + H_unseen
+
+    def adaptive_good_turing_entropy(
+        self,
+        batch_size: int = 1000,
+        tol: float = 0.001,
+        max_batches: int = 1000,
+        min_samples: int = 10000
+    ) -> float:
+        """
+        Repeatedly sample in batches, updating counts and the GT entropy estimate.
+        Stop when two successive estimates differ by less than `tol`,
+        or when `max_batches` is reached.
+
+        Returns the last entropy estimate.
+        """
+        counts = Counter()
+        total_n = 0
+
+        prev_H = None
+        curr_H = None
+
+        for i in range(max_batches):
+            # 1. draw a new batch and update counts
+            samples = [str(sample) for sample in self.generate(batch_size)]
+            total_n += len(samples)
+            counts.update(samples)
+
+            # 2. compute current estimate
+            curr_H = self._good_turing_from_counts(counts, total_n)
+
+            # 3. check stopping criterion
+            if total_n >= min_samples and prev_H is not None:
+                diff = abs(curr_H - prev_H)
+                if (i+1) % 100 == 0:
+                    print(f' {total_n} batches, diff={diff}')
+                if diff <= tol:
+                    return curr_H
+
+            prev_H = curr_H
+
+        # If we reach max_batches without convergence, return last estimate
+        return curr_H
 
 
 class PCFGDataset(SequenceDataset):
