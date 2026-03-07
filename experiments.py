@@ -83,12 +83,14 @@ def already_done():
         lstm_hparams = os.path.join(experiment, 'lstm', 'hparams.json')
         if os.path.exists(lstm_hparams):
             lstm_grammar_str = json.load(open(lstm_hparams, 'r', encoding='utf-8'))['grammar_str']
-            exists_already.add(('lstm', lstm_grammar_str))
+            var = lstm_hparams['var'] if 'var' in lstm_hparams else 1.0
+            exists_already.add(('lstm', lstm_grammar_str, var))
             
         trf_hparams = os.path.join(experiment, 'trf', 'hparams.json')
         if os.path.exists(trf_hparams):
             trf_grammar_str = json.load(open(trf_hparams, 'r', encoding='utf-8'))['grammar_str']
-            exists_already.add(('trf', trf_grammar_str))
+            var = trf_hparams['var'] if 'var' in trf_hparams else 1.0
+            exists_already.add(('trf', trf_grammar_str, var))
             
     return exists_already
 
@@ -132,12 +134,12 @@ def main(grammar_args, j):
     
     finished = already_done()
     
-    if ('lstm', grammar.file_name_convention) in finished:
+    if ('lstm', grammar.file_name_convention, grammar.var) in finished:
         do_lstm = False
     else:
         do_lstm = True
         
-    if ('trf', grammar.file_name_convention) in finished:
+    if ('trf', grammar.file_name_convention, grammar.var) in finished:
         do_trf = False
     else:
         do_trf = True

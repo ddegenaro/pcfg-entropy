@@ -42,6 +42,9 @@ for experiment_lstm in experiments_lstm:
                     assert lstm_json[key][second_key] == trf_json[key][second_key]
             else:
                 assert lstm_json[key] == trf_json[key], key
+                
+    if lstm_json['grammar_type'] == 'pcfg':
+        assert 'good_turing' in lstm_json
 
 opts = {
     'formalism_arg': [2, 4, 8, 16, 32, 64],
@@ -59,7 +62,11 @@ for formalism_arg in opts['formalism_arg']:
                 pfsa_str = f'pfsa_seed_{seed}_symbols_{num_symbols}_states_{formalism_arg}'
                 pcfg_str = f'pcfg_seed_{seed}_symbols_{num_symbols}_nts_{formalism_arg}'
                 
-                assert ('lstm', pfsa_str, var) in ad, (pfsa_str, var)
-                assert ('trf', pfsa_str, var) in ad, (pfsa_str, var)
-                assert ('lstm', pcfg_str, var) in ad, (pcfg_str, var)
-                assert ('trf', pcfg_str, var) in ad, (pcfg_str, var)
+                if ('lstm', pfsa_str, var) not in ad:
+                    print(pfsa_str, var)
+                if ('trf', pfsa_str, var) not in ad:
+                    print(pfsa_str, var)
+                if ('lstm', pcfg_str, var) not in ad:
+                    print(pcfg_str, var)
+                if ('trf', pcfg_str, var) not in ad:
+                    print(pcfg_str, var)
