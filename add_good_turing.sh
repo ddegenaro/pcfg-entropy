@@ -14,7 +14,7 @@ cd /home/drd92/pcfg-entropy
 module load cuda/12.5
 
 module load gcc/11.4.0
- 
+
 source venv/bin/activate
 
 python3 -m uv pip install -r requirements.txt
