@@ -44,7 +44,7 @@ for experiment_lstm in experiments_lstm:
                 assert lstm_json[key] == trf_json[key], key
                 
     if lstm_json['grammar_type'] == 'pcfg':
-        assert 'good_turing' in lstm_json
+        assert 'good_turing' in lstm_json, experiment_lstm
 
 opts = {
     'formalism_arg': [2, 4, 8, 16, 32, 64],
