@@ -3,6 +3,8 @@ import glob, json
 hparams_lstms = glob.glob('experiments/*/lstm/hparams.json')
 hparams_trfs = glob.glob('experiments/*/trf/hparams.json')
 
+missing = []
+
 for line in open('missing.txt', 'r', encoding='utf-8'):
     data = eval(line.strip())
     if data[0] == 'lstm':
@@ -22,4 +24,7 @@ for line in open('missing.txt', 'r', encoding='utf-8'):
             break
         
     if not flag:
-        print(data[1], data[2])
+        missing.append((data[1], data[2]))
+        
+for miss in sorted(missing):
+    print(miss)
