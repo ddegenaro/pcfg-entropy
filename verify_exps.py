@@ -55,6 +55,10 @@ opts = {
 
 ad = already_done()
 
+for a in ad:
+    print(a)
+exit()
+
 for formalism_arg in opts['formalism_arg']:
     for seed in opts['seed']:
         for num_symbols in opts['num_symbols']:
