@@ -63,10 +63,10 @@ for formalism_arg in opts['formalism_arg']:
                 pcfg_str = f'pcfg_seed_{seed}_symbols_{num_symbols}_nts_{formalism_arg}'
                 
                 if ('lstm', pfsa_str, var) not in ad:
-                    print(pfsa_str, var)
+                    print('lstm', pfsa_str, var)
                 if ('trf', pfsa_str, var) not in ad:
-                    print(pfsa_str, var)
+                    print('trf', pfsa_str, var)
                 if ('lstm', pcfg_str, var) not in ad:
-                    print(pcfg_str, var)
+                    print('lstm', pcfg_str, var)
                 if ('trf', pcfg_str, var) not in ad:
-                    print(pcfg_str, var)
+                    print('trf', pcfg_str, var)
