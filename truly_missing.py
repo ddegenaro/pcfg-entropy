@@ -28,3 +28,5 @@ for line in open('missing.txt', 'r', encoding='utf-8'):
         
 for miss in sorted(missing):
     print(miss)
+    
+print(len(missing))
