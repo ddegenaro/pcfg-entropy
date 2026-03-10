@@ -35,7 +35,7 @@ LOG_FREQ = 100 if not DEBUG else 16
 EVAL_EVERY = 100 if not DEBUG else 64
 NUM_SEQS_TRAIN = 32_000 if not DEBUG else 256
 NUM_SEQS_VAL = 32_000 if not DEBUG else 256
-VAR = 1.0 # was 1.0 in all runs <= 160
+VAR = 4.0 # was 1.0 in all runs <= 160
 
 # model-specific
 N_EMBD_LSTM = 128 if not DEBUG else 64
