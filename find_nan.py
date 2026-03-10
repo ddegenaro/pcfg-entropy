@@ -2,8 +2,15 @@ import glob
 import pandas as pd
 import numpy as np
 
-for log_tsv in glob.glob('experiments/*/*/metrics.tsv'):
+c = 0
+
+files = glob.glob('experiments/*/*/metrics.tsv')
+
+for log_tsv in files:
     df = pd.read_csv(log_tsv, sep='\t')
     s = df['ce'].isna().sum()
     if s > 0:
-        print(log_tsv, s, '/', len(df))
+        print(log_tsv, f'{100 * s / len(df):d}')
+        c += 1
+        
+print(f'nan found in {c}/{len(files)} logs')
