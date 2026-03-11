@@ -5,7 +5,7 @@
 #SBATCH --output="slurms/%x.o%j"
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
-#SBATCH --mem=4G
+#SBATCH --mem=15G
 #SBATCH --time=60:00:00
 #SBATCH --mail-type=FAIL,END
 #SBATCH --mail-user=drd92@georgetown.edu
