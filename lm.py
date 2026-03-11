@@ -115,8 +115,6 @@ def train_epoch(
             batch['input_ids']
         ))
         
-        breakpoint()
-        
         # put 1's there for attention mask, ok to attend to BOS
         batch['attention_mask'] = torch.hstack((
             torch.full((batch['attention_mask'].shape[0], 1), 1),

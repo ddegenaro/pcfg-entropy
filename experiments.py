@@ -22,7 +22,7 @@ else:
     DEVICE = 'cpu'
 
 # constant over all training runs
-DEBUG = True
+DEBUG = False
 PATIENCE = 5 # number of evals to wait before breaking if no appreciable change
 TOLERANCE = 1e-3 # proportion of loss decrease equivalent to "no appreciable change"
 MIN_EVALS = 100
