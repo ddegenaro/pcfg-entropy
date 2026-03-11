@@ -174,14 +174,25 @@ def train_epoch(
                 last_k_ces.append(ce)
                 
                 if len(last_k_ces) == patience:
-                    flags = []
+                    
+                    no_change_flags = []
+                    loss_growing_flags = []
+                    
                     for i in range(1, len(last_k_ces)):
-                        if last_k_ces[i-1] - last_k_ces[i] < last_k_ces[i-1] * tol:
-                            flags.append(True)
+                        if abs(last_k_ces[i-1] - last_k_ces[i]) < last_k_ces[i-1] * tol:
+                            no_change_flags.append(True)
                         else:
-                            flags.append(False)
+                            no_change_flags.append(False)
+                        
+                        if last_k_ces[i] > last_k_ces[i-1]:
+                            loss_growing_flags.append(True)
+                        else:
+                            loss_growing_flags.append(False)
                             
-                    if all(flags):
+                    if all(no_change_flags):
+                        return 'end'
+                    
+                    if all(loss_growing_flags):
                         return 'end'
 
 def val_epoch(
