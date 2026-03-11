@@ -28,7 +28,9 @@ def create_model_and_optimizer(
     if model_type == 'trf':
         model = GPT2LMHeadModel(
             config=GPT2Config(
-                vocab_size=grammar.num_symbols + 3, # EOS, PAD
+                vocab_size=grammar.num_symbols + 3, # BOS, EOS, PAD
+                bos_token_id=grammar.num_symbols,
+                eos_token_id=grammar.num_symbols + 1,
                 pad_token_id=grammar.num_symbols + 2,
                 n_embd=n_embd,
                 n_layer=n_layer,
@@ -36,9 +38,14 @@ def create_model_and_optimizer(
                 n_positions=n_positions
             )
         ).to(device=DEVICE, dtype=torch.bfloat16)
+        model.bos_token_id = grammar.num_symbols
+        model.eos_token_id = grammar.num_symbols + 1
+        model.pad_token_id = grammar.num_symbols + 2
     elif model_type == 'lstm':
         model = LSTM(
-            vocab_size=grammar.num_symbols + 3, # EOS, PAD
+            vocab_size=grammar.num_symbols + 3, # BOS, EOS, PAD
+            bos_token_id=grammar.num_symbols,
+            eos_token_id=grammar.num_symbols + 1,
             pad_token_id = grammar.num_symbols + 2,
             n_embd=n_embd,
             n_hidden=n_hidden,
@@ -55,7 +62,7 @@ def create_model_and_optimizer(
 
     param_count = sum(p.numel() for p in model.parameters())
     print(f'Training {model_type} on {DEVICE} with {param_count:,} trainable parameters.', flush=True)
-
+    
     return (model, optimizer, param_count)
 
 
@@ -73,7 +80,7 @@ def train_epoch(
     verbose: bool,
     all_train_losses: list[float],
     all_train_tokens: list[int],
-    last_k_rhos: list[float],
+    last_k_ces: list[float],
     patience: int,
     tol: float,
     min_evals: int
@@ -101,6 +108,20 @@ def train_epoch(
     train_tokens = []
 
     for batch in iterable:
+        
+        # prepend start token to each sequence
+        batch['input_ids'] = torch.hstack((
+            torch.full((batch['input_ids'].shape[0], 1), model.bos_token_id),
+            batch['input_ids']
+        ))
+        
+        breakpoint()
+        
+        # put 1's there for attention mask, ok to attend to BOS
+        batch['attention_mask'] = torch.hstack((
+            torch.full((batch['attention_mask'].shape[0], 1), 1),
+            batch['attention_mask']
+        ))
 
         batch['labels'] = batch['input_ids']
 
@@ -114,7 +135,7 @@ def train_epoch(
 
         loss = outputs.loss.item()
         tokens = batch['attention_mask'].sum().item()
-        running_total_train_loss += loss
+        running_total_train_loss += loss * tokens # this average loss, times this many tokens
         running_total_train_tokens += tokens
         train_losses.append(loss)
         train_tokens.append(tokens)
@@ -126,7 +147,7 @@ def train_epoch(
             print(msg, flush=True)
 
         if step % eval_every == 0:
-            rho_mean = val_epoch(
+            ce = val_epoch(
                 val_data_loader=val_data_loader,
                 model=model,
                 step=step,
@@ -150,14 +171,14 @@ def train_epoch(
             if round(step / eval_every) < min_evals:
                 continue
             else:
-                if len(last_k_rhos) == patience:
-                    del last_k_rhos[0]
-                last_k_rhos.append(rho_mean)
+                if len(last_k_ces) == patience:
+                    del last_k_ces[0]
+                last_k_ces.append(ce)
                 
-                if len(last_k_rhos) == patience:
+                if len(last_k_ces) == patience:
                     flags = []
-                    for i in range(1, len(last_k_rhos)):
-                        if last_k_rhos[i-1] - last_k_rhos[i] < last_k_rhos[i-1] * tol:
+                    for i in range(1, len(last_k_ces)):
+                        if last_k_ces[i-1] - last_k_ces[i] < last_k_ces[i-1] * tol:
                             flags.append(True)
                         else:
                             flags.append(False)
@@ -178,7 +199,7 @@ def val_epoch(
     print(f'Begin eval after {step} steps.', flush=True)
     print('-' * 100, flush=True)
 
-    seq_lens, rho_mean, rhos, pvals, ce = both_metrics(
+    count_by_len, spearman_by_len, pvalue_by_len, ce = both_metrics(
         val_data_loader=val_data_loader,
         model=model,
         log_p_true_by_len=log_p_true_by_len,
@@ -186,14 +207,20 @@ def val_epoch(
         verbose=verbose
     )
     
+    seq_lens = sorted(list(spearman_by_len.keys()))
+    
+    spearman_weighted_avg = sum([
+        spearman_by_len[seq_len] * count_by_len[seq_len] for seq_len in seq_lens
+    ]) / sum([count_by_len[seq_len] for seq_len in seq_lens])
+    
     with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'a', encoding='utf-8') as f:
-        f.write(f'{step}\t{rho_mean}\t{sum(pvals.values())/len(pvals)}\t{ce}\n')
+        f.write(f'{step}\t{spearman_weighted_avg}\t{sum(pvalue_by_len.values())}\t{ce}\n')
     
     with open(os.path.join(this_experiment_dir, 'length_wise_metrics.tsv'), 'a', encoding='utf-8') as f:
         for seq_len in seq_lens:
-            f.write(f'{step}\t{seq_len}\t{rhos[seq_len]}\t{pvals[seq_len]}\n')
+            f.write(f'{step}\t{seq_len}\t{spearman_by_len[seq_len]}\t{pvalue_by_len[seq_len]}\n')
         
-    return rho_mean
+    return ce
 
 def train_model(
     grammar: Grammar,
@@ -257,7 +284,7 @@ def train_model(
             else:
                 log_p_true_by_len[lens[i]].append(log_p_true[i])
     else:
-        log_p_true = [grammar.p_seq(seq).item() for seq in val_data]
+        log_p_true = [grammar.p_seq(seq).log().item() for seq in val_data]
         lens = [len(seq) for seq in val_data]
         log_p_true_by_len = {}
         for i in range(len(lens)):
@@ -270,24 +297,17 @@ def train_model(
         f.write('avg_loss\ttokens\n')
 
     with open(os.path.join(this_experiment_dir, 'metrics.tsv'), 'w+', encoding='utf-8') as f:
-        f.write('step\trho\trho_pval\tce\n')
+        f.write('step\tspearman_weighted_avg\tsum_of_pvals\tce\n')
         
     with open(os.path.join(this_experiment_dir, 'length_wise_metrics.tsv'), 'w+', encoding='utf-8') as f:
-        f.write(f'step\tseq_len\trho\tpval\n')
+        f.write(f'step\tseq_len\tspearman_by_len\tpval_by_len\n')
         
     all_train_losses = []
     all_train_tokens = []
     
-    last_k_rhos = []
+    last_k_ces = []
 
     for epoch in range(hparams['max_epochs']):
-
-        torch.manual_seed(
-            torch.randint(
-                low=0, high=hparams['max_epochs']**2, size=(1,),
-                generator=grammar.cpu_generator
-            ).item()
-        )
 
         signal = train_epoch(
             train_data_loader=train_data_loader,
@@ -302,7 +322,7 @@ def train_model(
             verbose=verbose,
             all_train_losses=all_train_losses,
             all_train_tokens=all_train_tokens,
-            last_k_rhos=last_k_rhos,
+            last_k_ces=last_k_ces,
             patience=hparams['patience'],
             tol=hparams['tolerance'],
             min_evals=hparams['min_evals']

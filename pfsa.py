@@ -56,7 +56,7 @@ class PFSA(Grammar):
         self.validate()
 
     def __repr__(self):
-        return f'PFSA(seed={self.seed}, num_symbols={self.num_symbols}, num_states={self.num_states})'
+        return f'PFSA(seed={self.seed}, num_symbols={self.num_symbols}, num_states={self.num_states}, var={self.var})'
 
     def validate(self):
         super().validate()
@@ -74,15 +74,13 @@ class PFSA(Grammar):
         # self.pi[ord('a') - self.chr_ord_offset] = p(start with 'a')
         self.pi = nn.Parameter((self.var * torch.randn(
             (self.num_states,),
-            device=self.device,
-            generator=self.generator
+            device=self.device
         )).softmax(0))
 
         # self.transitions[ord('a') - self.chr_ord_offset, i, j] = p(transition from state i to state j by emitting 'a')
         self.transitions = nn.Parameter((self.var * torch.randn(
             (self.num_states, self.num_symbols, self.num_states + 1), # +1 for accept state
-            device=self.device,
-            generator=self.generator
+            device=self.device
         )).flatten(start_dim=1).softmax(1).reshape(self.num_states, self.num_symbols, self.num_states + 1))
 
         super().init_weights() # turn off gradients
@@ -138,8 +136,7 @@ class PFSA(Grammar):
         
         curr_state = torch.multinomial(
             self.pi,
-            num_samples=1,
-            generator=self.generator
+            num_samples=1
         ).item()
 
         while len(seq) < max_length:
@@ -148,8 +145,7 @@ class PFSA(Grammar):
             next_symbol, next_state = self._idx_to_symbol_state_pair(
                 torch.multinomial(
                     self.transitions[curr_state].flatten(),
-                    num_samples=1,
-                    generator=self.generator
+                    num_samples=1
                 ).item()
             )
             seq.append(next_symbol)
@@ -239,13 +235,11 @@ class PFSA(Grammar):
             for k in range(K):
                 candidate_pi = self.var * torch.randn(
                     self.pi.shape,
-                    device=self.device,
-                    generator=self.generator
+                    device=self.device
                 )
                 candidate_trans = self.var * torch.randn(
                     self.transitions.shape,
-                    device=self.device,
-                    generator=self.generator
+                    device=self.device
                 )
                 
                 pi_norm = candidate_pi.softmax(0)

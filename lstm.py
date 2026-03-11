@@ -14,6 +14,8 @@ class LSTM(nn.Module):
     def __init__(
         self,
         vocab_size: int,
+        bos_token_id: int,
+        eos_token_id: int,
         pad_token_id: int,
         n_embd: int,
         n_hidden: int,
@@ -21,6 +23,8 @@ class LSTM(nn.Module):
     ):
         super().__init__()
         self.vocab_size = vocab_size
+        self.bos_token_id = bos_token_id
+        self.eos_token_id = eos_token_id
         self.pad_token_id = pad_token_id
         self.n_embd = n_embd
         self.n_hidden = n_hidden

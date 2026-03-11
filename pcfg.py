@@ -62,7 +62,7 @@ class PCFG(Grammar):
         self.validate()
 
     def __repr__(self):
-        return f'PCFG(seed={self.seed}, num_symbols={self.num_symbols}, num_non_terminals={self.num_non_terminals})'
+        return f'PCFG(seed={self.seed}, num_symbols={self.num_symbols}, num_non_terminals={self.num_non_terminals}, var={self.var})'
 
     def validate(self):
         super().validate()
@@ -75,8 +75,7 @@ class PCFG(Grammar):
         # + 1 to num_non_terminals due to start symbol
         self.rules = nn.Parameter((self.var * torch.randn(
             (self.num_non_terminals + 1, self.num_symbols + self.num_non_terminals ** 2),
-            device=self.device,
-            generator=self.generator
+            device=self.device
         )).softmax(1))
 
         super().init_weights() # turn off gradients
@@ -133,11 +132,12 @@ class PCFG(Grammar):
                 return Sequence(tree)
             
     def entropy(self) -> torch.Tensor:
-        return (
-            torch.inverse(torch.eye(self.num_non_terminals + 1, device=self.device) - self._char_matrix())
-            @
-            (self._local_expansion_vector())
-        )[self.S]
+        # return (
+        #     torch.inverse(torch.eye(self.num_non_terminals + 1, device=self.device) - self._char_matrix())
+        #     @
+        #     (self._local_expansion_vector())
+        # )[self.S]
+        return self.adaptive_good_turing_entropy()
     
     def optimize(
         self,
@@ -191,8 +191,7 @@ class PCFG(Grammar):
                 # Generate random tensor of same shape (raw values)
                 candidate_rules = self.var * torch.randn(
                     self.rules.shape,
-                    device=self.device,
-                    generator=self.generator
+                    device=self.device
                 )
                 candidate_normalized = candidate_rules.softmax(1)
                 
@@ -356,7 +355,7 @@ class PCFG(Grammar):
             symbol = expansion_point.data
             # assert symbol in self.NUS, f"Found terminal symbol {symbol} in frontier."
             sampled_rule_index: int = torch.multinomial(
-                self.rules[symbol], num_samples = 1, generator=self.generator
+                self.rules[symbol], num_samples = 1
             ).item()
             symbol_s = self._column_index_to_symbols(sampled_rule_index)
             if self._col_is_terminal(sampled_rule_index):
@@ -512,7 +511,7 @@ class PCFG(Grammar):
         tol: float = 0.001,
         max_batches: int = 1000,
         min_samples: int = 10000
-    ) -> float:
+    ) -> torch.Tensor:
         """
         Repeatedly sample in batches, updating counts and the GT entropy estimate.
         Stop when two successive estimates differ by less than `tol`,
@@ -546,7 +545,7 @@ class PCFG(Grammar):
             prev_H = curr_H
 
         # If we reach max_batches without convergence, return last estimate
-        return curr_H
+        return torch.tensor(curr_H)
 
 
 class PCFGDataset(SequenceDataset):

@@ -1,7 +1,7 @@
 import os
 from time import time
 from random import Random
-from typing import Union, Iterable, Generator
+from typing import Union, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
@@ -197,24 +197,6 @@ class Grammar(nn.Module):
         self.from_file: str = from_file
         self.num_symbols: int = num_symbols # used only if from_file is None
 
-        self.cpu_generator = torch.Generator('cpu')
-        if torch.backends.mps.is_available():
-            self.gpu_generator = torch.Generator('mps')
-        elif torch.cuda.is_available():
-            self.gpu_generator = torch.Generator('cuda')
-        else:
-            self.gpu_generator = None
-
-        if self.seed is not None:
-            self.cpu_generator.manual_seed(self.seed)
-            if self.gpu_generator is not None:
-                self.gpu_generator.manual_seed(self.seed)
-
-        if self.device is None or self.device == 'cpu' or self.device == torch.device('cpu') or self.gpu_generator is None:
-            self.generator = self.cpu_generator
-        else:
-            self.generator = self.gpu_generator
-
         if from_file is not None:
             self.load(from_file)
         else:
@@ -351,12 +333,6 @@ class Grammar(nn.Module):
         for param in self.parameters():
             param.data = param.data.to(device)
         self.device = device
-        if device == 'cpu' or device == torch.device('cpu'):
-            self.generator = self.cpu_generator
-        else:
-            self.generator = self.gpu_generator
-            if self.generator is None:
-                print(f'No GPU generator available - does this machine have a GPU?', flush=True)
         return self
                     
     def generate(

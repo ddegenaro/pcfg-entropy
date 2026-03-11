@@ -53,7 +53,7 @@ class NGram(Grammar):
         self.validate()
 
     def __repr__(self):
-        return f'NGram(seed={self.seed}, num_symbols={self.num_symbols}, order={self.order})'
+        return f'NGram(seed={self.seed}, num_symbols={self.num_symbols}, order={self.order}, var={self.var})'
 
     def validate(self):
         super().validate()
@@ -76,25 +76,21 @@ class NGram(Grammar):
         if self.order == 1:
             self.probs['0'] = nn.Parameter((self.var * torch.randn( # unigrams no matter the order
                 (self.num_symbols + 1,), # add 1 for stop
-                device=self.device,
-                generator=self.generator
+                device=self.device
             )).softmax(0))
         else:
             self.probs['0'] = nn.Parameter((self.var * torch.randn( # unigrams no matter the order
                 (self.num_symbols,), # don't add 1 for stop - we don't stop with unigram
-                device=self.device,
-                generator=self.generator
+                device=self.device
             )).softmax(0))
             for i in range(1, self.order - 1): # i = 1...n-1 for n-grams
                 self.probs[str(i)] = nn.Parameter((self.var * torch.randn(
                     (self.num_symbols ** i, self.num_symbols), # all possible contexts of length i -> any symbol
-                    device=self.device,
-                    generator=self.generator
+                    device=self.device
                 )).softmax(1))
             self.probs[str(self.order - 1)] = nn.Parameter((self.var * torch.randn(
                 (self.num_symbols ** (self.order - 1), self.num_symbols + 1), # for context of length n-1, +1 because we might stop
-                device=self.device,
-                generator=self.generator
+                device=self.device
             )).softmax(1))
 
         super().init_weights() # turn off gradients
@@ -137,8 +133,7 @@ class NGram(Grammar):
         seq = [
             torch.multinomial(
                 self.probs['0'],
-                num_samples=1,
-                generator=self.generator
+                num_samples=1
             ).item()
         ]
         
@@ -150,8 +145,7 @@ class NGram(Grammar):
         while str(i) in self.probs:
             idx = torch.multinomial(
                 self.probs[str(i)][self._context_to_idx(seq)], # sample from appropriate row given context
-                num_samples=1,
-                generator=self.generator
+                num_samples=1
             ).item()
             seq.append(idx)
             i += 1
@@ -159,8 +153,7 @@ class NGram(Grammar):
         def next_symbol():
             return torch.multinomial(
                 self.probs[str(self.order - 1)][self._context_to_idx(seq[1-self.order:])],
-                num_samples=1,
-                generator=self.generator
+                num_samples=1
             ).item()
         
         while len(seq) < max_length:
@@ -278,8 +271,7 @@ class NGram(Grammar):
                 for i in range(self.order):
                     candidate_probs[str(i)] = self.var * torch.randn(
                         self.probs[str(i)].shape,
-                        device=self.device,
-                        generator=self.generator
+                        device=self.device
                     )
                 
                 probs_norm = {str(i): candidate_probs[str(i)].softmax(-1) for i in range(self.order)}

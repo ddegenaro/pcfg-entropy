@@ -44,55 +44,6 @@ def get_sequence_probabilities(logits, input_ids, attention_mask): # GENERATED W
     
     return seq_log_probs
 
-# def both_metrics(
-#     val_data_loader: SequenceDataLoader,
-#     model: Union[LSTM, GPT2LMHeadModel],
-#     p_true_by_len: dict[int, list[float]],
-#     device: str,
-#     verbose: bool
-# ):
-
-#     """
-#     Sequence-wise spearman rho over whole test set - get true probs vs LM predicted probs.
-#     """
-
-#     p_model = []
-    
-#     total_loss = 0.
-#     total_tokens = 0
-
-#     if verbose:
-#         iterable = tqdm(val_data_loader, total=len(val_data_loader))
-#     else:
-#         iterable = val_data_loader
-    
-#     model.eval()
-#     with torch.no_grad():
-#         for batch in iterable:
-
-#             batch['labels'] = batch['input_ids']
-
-#             for key in batch:
-#                 batch[key] = batch[key].to(device)
-
-#             outputs = model(**batch)
-#             logits = outputs.logits
-#             loss = outputs.loss.item()
-#             tokens = batch['attention_mask'].sum().item()
-#             total_loss += loss * tokens # reconstructed total loss over these tokens
-#             total_tokens += tokens
-#             p_model.extend(
-#                 get_sequence_probabilities(
-#                     logits,
-#                     batch['input_ids'],
-#                     batch['attention_mask']
-#                 )[0].tolist()
-#             )
-    
-#     model.train()
-#     return spearmanr(p_true, p_model), (total_loss / total_tokens)
-
-
 def both_metrics(
     val_data_loader: SequenceDataLoader,
     model: Union[LSTM, GPT2LMHeadModel],
@@ -119,6 +70,18 @@ def both_metrics(
     model.eval()
     with torch.no_grad():
         for batch in iterable:
+            
+            # prepend start token to each sequence
+            batch['input_ids'] = torch.hstack((
+                torch.full((batch['input_ids'].shape[0], 1), model.bos_token_id),
+                batch['input_ids']
+            ))
+            
+            # put 1's there for attention mask, ok to attend to BOS
+            batch['attention_mask'] = torch.hstack((
+                torch.full((batch['attention_mask'].shape[0], 1), 1),
+                batch['attention_mask']
+            ))
 
             batch['labels'] = batch['input_ids']
 
@@ -139,7 +102,8 @@ def both_metrics(
             ).tolist()
             
             # Get sequence lengths (number of non-padding tokens)
-            seq_lengths = batch['attention_mask'].sum(dim=1).tolist()
+            # -1 because the BOS token is not part of the sequence, in a sense
+            seq_lengths = (batch['attention_mask'].sum(dim=1) - 1).tolist()
             
             # Group probabilities by sequence length
             for seq_len, prob in zip(seq_lengths, seq_log_probs):
@@ -152,30 +116,28 @@ def both_metrics(
     # Compute spearman correlation for each sequence length
     spearman_by_len = {}
     pvalue_by_len = {}
-    spearman_values = []
-    seq_lens = []
+    count_by_len = {}
+    
+    assert len(log_p_true_by_len) == len(log_p_model_by_len)
     
     for seq_len in sorted(log_p_true_by_len.keys()):
-        if seq_len in log_p_model_by_len:
-            log_p_true = log_p_true_by_len[seq_len]
-            log_p_model = log_p_model_by_len[seq_len]
-            
-            if len(log_p_true) > 2 and len(log_p_model) > 2:  # Need at least 2 samples for correlation
-                rho, pval = spearmanr(log_p_true, log_p_model, nan_policy='omit')
-                if not isnan(rho):
-                    spearman_by_len[seq_len] = rho
-                    if not isnan(pval):
-                        pvalue_by_len[seq_len] = pval
-                    else:
-                        pvalue_by_len[seq_len] = 0.
-                    spearman_values.append(rho)
-                    seq_lens.append(seq_len)
-    
-    mean_spearman = sum(spearman_values) / len(spearman_values) if spearman_values else 0.0
+        log_p_true = log_p_true_by_len[seq_len]
+        log_p_model = log_p_model_by_len[seq_len]
+        
+        assert len(log_p_true) == len(log_p_model)
+        
+        if len(log_p_true) > 2:  # Need at least 2 samples for correlation
+            rho, pval = spearmanr(log_p_true, log_p_model, nan_policy='omit')
+            if not isnan(rho):
+                spearman_by_len[seq_len] = rho
+                if not isnan(pval):
+                    pvalue_by_len[seq_len] = pval
+                else:
+                    pvalue_by_len[seq_len] = 0.
+                count_by_len[seq_len] = len(log_p_true)
     
     return (
-        seq_lens,
-        mean_spearman,
+        count_by_len,
         spearman_by_len,
         pvalue_by_len,
         (total_loss / total_tokens)
