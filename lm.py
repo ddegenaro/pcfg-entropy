@@ -35,7 +35,7 @@ def create_model_and_optimizer(
                 n_embd=n_embd,
                 n_layer=n_layer,
                 n_head=n_head,
-                n_positions=n_positions
+                n_positions=n_positions + 1 # for start token
             )
         ).to(device=DEVICE, dtype=torch.bfloat16)
         model.bos_token_id = grammar.num_symbols
