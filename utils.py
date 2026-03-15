@@ -519,12 +519,11 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         tokens = sum(lens)
 
-        if len(lens) % 2 == 0:
-            median = (
-                lens[len(lens) // 2] + lens[len(lens) // 2 + 1]
-            ) // 2
+        n = len(lens)
+        if n % 2 == 0:
+            median = (lens[n // 2 - 1] + lens[n // 2]) // 2
         else:
-            median = lens[len(lens) // 2 + 1]
+            median = lens[n // 2]
 
         unique_lens = dict.fromkeys(set(lens), 0)
         for l in lens:
