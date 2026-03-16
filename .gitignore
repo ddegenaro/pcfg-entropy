@@ -4,7 +4,7 @@ grammar_matrices/
 tempCodeRunnerFile.py
 venv/
 slurms/
-experiments/*/*/*.tsv
+experiments/
 experiments_old/
 failed_opt.tsv
 failed.tsv
