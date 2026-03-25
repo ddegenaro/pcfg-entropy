@@ -1,5 +1,6 @@
 import os
 import json
+import glob
 import shutil
 from argparse import ArgumentParser
 from itertools import product
@@ -69,28 +70,17 @@ pfsa_grid['num_states'] = pfsa_nums_states
 pcfg_grid = default_grid.copy()
 pcfg_grid['num_non_terminals'] = pcfg_nums_nts
 
-def already_done():
-    os.makedirs('experiments', exist_ok=True)
-    experiments = [
-        os.path.join('experiments', x)
-        for x in os.listdir('experiments')
-    ]
+already_done_lstm = set()
+already_done_trf = set()
+
+lstm_jsons = glob.glob('experiments/*/lstm/hparams.json')
+trf_jsons = glob.glob('experiments/*/trf/hparams.json')
+
+for j in lstm_jsons:
+    already_done_lstm.add(json.load(open(j))['grammar_str'])
     
-    exists_already = set()
-    
-    for experiment in experiments:
-        
-        lstm_hparams = os.path.join(experiment, 'lstm', 'hparams.json')
-        if os.path.exists(lstm_hparams):
-            lstm_grammar_str = json.load(open(lstm_hparams, 'r', encoding='utf-8'))['grammar_str']
-            exists_already.add(('lstm', lstm_grammar_str))
-            
-        trf_hparams = os.path.join(experiment, 'trf', 'hparams.json')
-        if os.path.exists(trf_hparams):
-            trf_grammar_str = json.load(open(trf_hparams, 'r', encoding='utf-8'))['grammar_str']
-            exists_already.add(('trf', trf_grammar_str))
-            
-    return exists_already
+for j in trf_jsons:
+    already_done_trf.add(json.load(open(j))['grammar_str'])
 
 def main(grammar_args, j):
     
@@ -104,7 +94,6 @@ def main(grammar_args, j):
     if DEBUG:
         this_experiment += '_test'
     this_experiment_dir = os.path.join('experiments', this_experiment)
-    os.makedirs(this_experiment_dir)
 
     seed, num_symbols, var, formalism_arg = grammar_args
     
@@ -135,24 +124,25 @@ def main(grammar_args, j):
             num_non_terminals=formalism_arg,
             var=var
         )
-    
-    finished = already_done()
-    
-    if ('lstm', grammar.file_name_convention, grammar.var) in finished:
+        
+    if grammar.file_name_convention in already_done_lstm:
         do_lstm = False
     else:
         do_lstm = True
-        
-    if ('trf', grammar.file_name_convention, grammar.var) in finished:
+    if grammar.file_name_convention in already_done_trf:
         do_trf = False
     else:
         do_trf = True
-        
-    if not do_lstm and not do_trf:
+    
+    print(do_lstm and do_trf, seed)
+    
+    if (not do_lstm) and (not do_trf):
         return
     
     ge = grammar.entropy().item()
     print(f'Grammar entropy: {ge}', flush=True)
+    
+    os.makedirs(this_experiment_dir)
     
     print(f'Generating {NUM_SEQS_TRAIN:,} sequences with {grammar}...', flush=True)
     train_data = dataset_type(
