@@ -67,7 +67,7 @@ class PCFG(Grammar):
     def validate(self):
         super().validate()
         assert len(self.N) == len(self.N_ordered) == self.num_non_terminals == len(self.NUS) - 1
-        if not torch.allclose(self.rules.sum(1), torch.tensor(1., device=self.device)):
+        if not torch.allclose(self.rules.sum(1), torch.tensor(1., device=self.rules.device)):
             print(f'Warning: probability distributions not summing to 1.', flush=True)
 
     def init_weights(self):
@@ -81,7 +81,7 @@ class PCFG(Grammar):
         super().init_weights() # turn off gradients
 
     def load(self, fp: str):
-        self.rules = nn.Parameter(torch.load(fp, map_location=self.device))
+        self.rules = nn.Parameter(torch.load(fp, map_location=self.rules.device))
 
         # re-assign and validate
         self.num_symbols: int = self.rules.shape[1] - (self.rules.shape[0] - 1) ** 2
@@ -92,7 +92,7 @@ class PCFG(Grammar):
         print(f'Saved rules to {fp} successfully.', flush=True)
 
     def p_tree(self, seq: Union[Sequence, Tree]) -> torch.Tensor:
-        val = torch.tensor(1., device=self.device)
+        val = torch.tensor(1., device=self.rules.device)
 
         if type(seq) == Sequence:
             tree = seq.data
@@ -130,13 +130,25 @@ class PCFG(Grammar):
             if len(tree.leaves) <= max_length:
                 # assert self._is_expanded(tree)  # This should always pass now
                 return Sequence(tree)
-            
+
+    def derivational_entropy(self) -> torch.Tensor:
+        return (
+            torch.inverse(torch.eye(self.num_non_terminals + 1, device=self.rules.device) - self._char_matrix())
+            @
+            (self._local_expansion_vector())
+        )[self.S]
+        
+    def derivational_entropy(self, rules=None) -> torch.Tensor:
+        if rules is None:
+            rules = self.rules
+        return (
+            torch.linalg.solve(
+                torch.eye(self.num_non_terminals + 1, device=rules.device) - self._char_matrix(rules=rules),
+                self._local_expansion_vector(rules=rules)
+            )
+        )[self.S]
+    
     def entropy(self) -> torch.Tensor:
-        # return (
-        #     torch.inverse(torch.eye(self.num_non_terminals + 1, device=self.device) - self._char_matrix())
-        #     @
-        #     (self._local_expansion_vector())
-        # )[self.S]
         return self.adaptive_good_turing_entropy()
     
     def optimize(
@@ -172,8 +184,8 @@ class PCFG(Grammar):
 
         losses = []
         
-        DH = torch.tensor(H_t, dtype=torch.float32, requires_grad=False, device=self.device)
-        criterion = nn.MSELoss()
+        DH = torch.tensor(H_t, dtype=torch.float32, requires_grad=False, device=self.rules.device)
+        criterion = nn.MSELoss().to(self.rules.device)
         if do_logging:
             print(f'criterion: {criterion.__class__.__name__}', flush=True)
             print(f'Testing {K} random initializations...', flush=True)
@@ -183,21 +195,23 @@ class PCFG(Grammar):
             normalized_current = self.rules.softmax(1)
             original_rules = self.rules
             self.rules = nn.Parameter(normalized_current)
-            best_loss = criterion(self.entropy(), DH).item()
-            best_rules = original_rules.clone()  # Store the raw rules
+            if self.rules.device.type == 'mps':
+                torch.mps.synchronize()
+            best_loss = criterion(self.derivational_entropy(), DH).item()
+            best_rules = original_rules.data.clone()  # Store the raw rules
             
             # Try K random initializations
             for k in range(K):
                 # Generate random tensor of same shape (raw values)
                 candidate_rules = self.var * torch.randn(
                     self.rules.shape,
-                    device=self.device
+                    device=self.rules.device
                 )
                 candidate_normalized = candidate_rules.softmax(1)
                 
                 # Compute loss with candidate rules
                 self.rules = nn.Parameter(candidate_normalized)
-                candidate_loss = criterion(self.entropy(), DH).item()
+                candidate_loss = criterion(self.derivational_entropy(), DH).item()
                 
                 # Update best if this is better
                 if candidate_loss < best_loss:
@@ -219,16 +233,9 @@ class PCFG(Grammar):
         start = time()
         while True:
             optimizer.zero_grad()
-            
-            # Temporarily apply softmax for entropy computation
-            rules_backup = self.rules.data.clone()
-            self.rules.data = self.rules.softmax(1)
-            
-            loss = criterion(self.entropy(), DH)
+            normalized_rules = self.rules.softmax(1)
+            loss = criterion(self.derivational_entropy(rules=normalized_rules), DH)
             loss.backward()
-            
-            # Restore raw before step
-            self.rules.data = rules_backup
             optimizer.step()
             
             if (i % log_freq == 0):
@@ -385,9 +392,13 @@ class PCFG(Grammar):
         #         raise Exception(f'Found a non-terminal leaf: {leaf.data} which is not in {self.Sigma}')
         return len(tree.frontier) == 0
 
-    def _char_matrix(self) -> torch.Tensor:
+    def _char_matrix(self, rules=None) -> torch.Tensor:
         # Extract binary rules and reshape to (|NUS|, |N|, |N|)
-        binary_rules = self.rules[:, self.num_symbols:].view(
+        
+        if rules is None:
+            rules = self.rules
+        
+        binary_rules = rules[:, self.num_symbols:].view(
             self.num_non_terminals + 1,
             self.num_non_terminals,
             self.num_non_terminals
@@ -396,15 +407,17 @@ class PCFG(Grammar):
         # Sum over dimensions to count occurrences of each non-terminal
         m = torch.zeros(
             (self.num_non_terminals + 1, self.num_non_terminals + 1),
-            device=self.device
+            device=rules.device
         )
 
         m[:, 1:] = binary_rules.sum(dim=2) + binary_rules.sum(dim=1)
         
         return m
 
-    def _local_expansion_vector(self) -> torch.Tensor:
-        return -(self.rules * self.rules.log()).sum(1)
+    def _local_expansion_vector(self, rules=None) -> torch.Tensor:
+        if rules is None:
+            rules = self.rules
+        return -(rules * rules.log()).sum(1)
     
     def _length_expansion_vector(self) -> torch.Tensor:
         pass # TODO
@@ -424,16 +437,16 @@ class PCFG(Grammar):
         # inside probabilities
         B = torch.zeros(
             (len(w), len(w), self.rules.shape[0]),
-            device = self.device
+            device = self.rules.device
         )
         B[range(len(w)), range(len(w)), :] = self.rules[:, w].T
 
         # precompile indices
-        YZ_indices = torch.arange(self.num_symbols, self.rules.shape[1], device = self.device)
+        YZ_indices = torch.arange(self.num_symbols, self.rules.shape[1], device = self.rules.device)
         YZ_pairs = [
             self._column_index_to_symbols(YZ) for YZ in range(self.num_symbols, self.rules.shape[1])
         ]
-        Y_vals, Z_vals = torch.tensor(YZ_pairs, device = self.device).T
+        Y_vals, Z_vals = torch.tensor(YZ_pairs, device = self.rules.device).T
 
         for l in range(2, len(w)+1):
             for i in range(0, len(w) - l + 1):
@@ -470,7 +483,7 @@ class PCFG(Grammar):
 
     def _E_lc_one_symbol(self) -> torch.Tensor:
         return torch.inverse(
-            torch.eye(self.num_non_terminals + 1, device=self.device) - self._P()
+            torch.eye(self.num_non_terminals + 1, device=self.rules.device) - self._P()
         )
     
     def _good_turing_from_counts(self, counts: Counter, n: int) -> float:
@@ -545,7 +558,7 @@ class PCFG(Grammar):
             prev_H = curr_H
 
         # If we reach max_batches without convergence, return last estimate
-        return torch.tensor(curr_H)
+        return torch.tensor(curr_H, dtype=self.rules.dtype, device=self.rules.device)
 
 
 class PCFGDataset(SequenceDataset):
